@@ -98,6 +98,8 @@ impl ConsumerProject {
         });
 
         let dependency_path = toml_string(manifest_dir);
+        // The fork publishes these crates as `cctop-<name>` under their
+        // upstream library names, so the consumer renames the package back.
         let manifest = format!(
             "[package]\n\
              name = \"{dependency}-public-api-compile-fail\"\n\
@@ -108,7 +110,7 @@ impl ConsumerProject {
              [workspace]\n\
              \n\
              [dependencies]\n\
-             {dependency} = {{ path = \"{dependency_path}\" }}\n"
+             {dependency} = {{ package = \"cctop-{dependency}\", path = \"{dependency_path}\" }}\n"
         );
         fs::write(root.join("Cargo.toml"), manifest).unwrap_or_else(|error| {
             panic!(

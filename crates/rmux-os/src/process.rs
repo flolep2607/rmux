@@ -12,16 +12,11 @@ use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 
-#[cfg(windows)]
-#[path = "process_windows.rs"]
-mod windows_process;
 #[cfg(target_os = "linux")]
 use linux_impl::{
     command_name_impl, current_path_impl, environment_impl, executable_path_impl, fd_path_impl,
     is_live_impl, raw_environment_impl,
 };
-#[cfg(windows)]
-pub use windows_process::ProcessJob;
 
 /// Inspect process metadata for the current platform.
 #[derive(Debug, Default, Clone, Copy)]

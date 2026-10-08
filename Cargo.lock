@@ -192,6 +192,62 @@ dependencies = [
 ]
 
 [[package]]
+name = "cctop-rmux-ipc"
+version = "0.10.0"
+dependencies = [
+ "cctop-rmux-os",
+ "libc",
+ "rustix",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "cctop-rmux-os"
+version = "0.10.0"
+dependencies = [
+ "cctop-rmux-types",
+ "libc",
+ "rustix",
+]
+
+[[package]]
+name = "cctop-rmux-proto"
+version = "0.10.0"
+dependencies = [
+ "bincode",
+ "cctop-rmux-types",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "cctop-rmux-sdk"
+version = "0.10.0"
+dependencies = [
+ "bincode",
+ "cctop-rmux-ipc",
+ "cctop-rmux-os",
+ "cctop-rmux-proto",
+ "crossterm",
+ "libc",
+ "regex",
+ "rustix",
+ "serde",
+ "serde_json",
+ "signal-hook",
+ "tokio",
+]
+
+[[package]]
+name = "cctop-rmux-types"
+version = "0.10.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cexpr"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -294,15 +350,6 @@ dependencies = [
  "anstyle",
  "clap_lex",
  "strsim",
-]
-
-[[package]]
-name = "clap_complete"
-version = "4.5.55"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5abde44486daf70c5be8b8f8f1b66c49f86236edf6fa2abadb4d961c4c6229a"
-dependencies = [
- "clap",
 ]
 
 [[package]]
@@ -1189,15 +1236,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ratatui-rmux"
-version = "0.10.0"
-dependencies = [
- "ratatui",
- "rmux-sdk",
- "tokio",
-]
-
-[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1239,6 +1277,9 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "rmux"
 version = "0.10.0"
 dependencies = [
+ "cctop-rmux-os",
+ "cctop-rmux-proto",
+ "cctop-rmux-sdk",
  "chrono",
  "clap",
  "embed-manifest",
@@ -1247,10 +1288,7 @@ dependencies = [
  "ratatui",
  "rmux-client",
  "rmux-core",
- "rmux-os",
- "rmux-proto",
  "rmux-pty",
- "rmux-sdk",
  "rmux-server",
  "rustix",
  "serde_json",
@@ -1262,13 +1300,13 @@ dependencies = [
 name = "rmux-client"
 version = "0.10.0"
 dependencies = [
+ "cctop-rmux-ipc",
+ "cctop-rmux-os",
+ "cctop-rmux-proto",
+ "cctop-rmux-sdk",
  "libc",
  "rmux-core",
- "rmux-ipc",
- "rmux-os",
- "rmux-proto",
  "rmux-pty",
- "rmux-sdk",
  "rmux-server",
  "rustix",
  "signal-hook",
@@ -1281,86 +1319,24 @@ dependencies = [
 name = "rmux-core"
 version = "0.10.0"
 dependencies = [
+ "cctop-rmux-proto",
  "chrono",
  "compact_str",
  "regex",
- "rmux-proto",
  "unicode-width 0.1.14",
-]
-
-[[package]]
-name = "rmux-ipc"
-version = "0.10.0"
-dependencies = [
- "getrandom 0.3.4",
- "libc",
- "rmux-os",
- "rustix",
- "sha2",
- "tokio",
- "tracing",
- "windows-sys",
-]
-
-[[package]]
-name = "rmux-os"
-version = "0.10.0"
-dependencies = [
- "libc",
- "rmux-types",
- "rustix",
- "windows-sys",
-]
-
-[[package]]
-name = "rmux-proto"
-version = "0.10.0"
-dependencies = [
- "bincode",
- "rmux-types",
- "serde",
- "serde_json",
- "thiserror",
 ]
 
 [[package]]
 name = "rmux-pty"
 version = "0.10.0"
 dependencies = [
+ "cctop-rmux-os",
+ "cctop-rmux-types",
  "getrandom 0.3.4",
  "libc",
- "rmux-os",
- "rmux-types",
  "rustix",
  "tokio",
  "tracing",
- "windows-sys",
-]
-
-[[package]]
-name = "rmux-render-core"
-version = "0.10.0"
-dependencies = [
- "ratatui",
- "serde",
-]
-
-[[package]]
-name = "rmux-sdk"
-version = "0.10.0"
-dependencies = [
- "bincode",
- "crossterm",
- "libc",
- "regex",
- "rmux-ipc",
- "rmux-os",
- "rmux-proto",
- "rustix",
- "serde",
- "serde_json",
- "signal-hook",
- "tokio",
  "windows-sys",
 ]
 
@@ -1371,6 +1347,9 @@ dependencies = [
  "async-recursion",
  "base64",
  "bincode",
+ "cctop-rmux-ipc",
+ "cctop-rmux-os",
+ "cctop-rmux-proto",
  "chrono",
  "getrandom 0.3.4",
  "glob",
@@ -1378,9 +1357,6 @@ dependencies = [
  "httparse",
  "regex",
  "rmux-core",
- "rmux-ipc",
- "rmux-os",
- "rmux-proto",
  "rmux-pty",
  "rmux-web-crypto",
  "rustix",
@@ -1394,13 +1370,6 @@ dependencies = [
  "toml",
  "tracing",
  "zeroize",
-]
-
-[[package]]
-name = "rmux-types"
-version = "0.10.0"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -2028,16 +1997,6 @@ dependencies = [
  "rand_core 0.6.4",
  "serde",
  "zeroize",
-]
-
-[[package]]
-name = "xtask"
-version = "0.10.0"
-dependencies = [
- "clap",
- "clap_complete",
- "rmux-core",
- "rmux-proto",
 ]
 
 [[package]]

@@ -1,13 +1,18 @@
 [package]
-name = "rmux-types"
-version.workspace = true
+name = "cctop-rmux-types"
+version = "0.10.0"
 edition.workspace = true
 publish = true
 license.workspace = true
 repository.workspace = true
-description = "Shared platform-neutral value types for the RMUX terminal multiplexer workspace."
+description = "cctop's fork of rmux-types. Shared platform-neutral value types for the RMUX terminal multiplexer workspace."
 keywords = ["terminal", "multiplexer", "types"]
 categories = ["command-line-interface"]
+
+# Published under cctop's name, built under upstream's: dependents and
+# merges from Helvesec/rmux keep saying `rmux_types`.
+[lib]
+name = "rmux_types"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"], optional = true }
