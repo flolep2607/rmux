@@ -65,7 +65,12 @@ impl KittyScreens {
 
     /// What the screen in use would tell an application that asked.
     pub(super) fn flags(&self, alternate: bool) -> u8 {
-        if alternate { &self.alternate } else { &self.main }.flags()
+        if alternate {
+            &self.alternate
+        } else {
+            &self.main
+        }
+        .flags()
     }
 
     /// The alternate screen negotiates from nothing, every time it is entered

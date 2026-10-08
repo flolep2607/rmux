@@ -822,8 +822,7 @@ fn a_negotiated_pane_encodes_shift_enter_distinguishably() {
     )
     .expect("encode");
     assert_eq!(
-        ambiguous,
-        b"\n",
+        ambiguous, b"\n",
         "an application cannot tell this from the Enter it is given for C-j"
     );
 
