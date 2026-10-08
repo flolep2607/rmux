@@ -1,14 +1,18 @@
 [package]
-name = "rmux-pty"
+name = "cctop-rmux-pty"
 version.workspace = true
 edition.workspace = true
-# Not published by this fork yet: it is the next stage of flolep2607/cctop#197.
-publish = false
+publish = true
 license.workspace = true
 repository.workspace = true
-description = "PTY allocation, resize, and child-process control for the RMUX terminal multiplexer."
+description = "cctop's fork of rmux-pty. PTY allocation, resize, and child-process control for the RMUX terminal multiplexer."
 keywords = ["terminal", "multiplexer", "pty"]
 categories = ["command-line-interface", "os"]
+
+# Published under cctop's name, built under upstream's: dependents and
+# merges from Helvesec/rmux keep saying `rmux_pty`.
+[lib]
+name = "rmux_pty"
 
 [dependencies]
 rmux-types = { workspace = true }
@@ -18,23 +22,3 @@ tracing = "0.1.44"
 libc = "0.2.185"
 rmux-os = { workspace = true }
 rustix = { version = "1.1.4", features = ["process", "termios", "pty", "fs"] }
-
-[target.'cfg(windows)'.dependencies]
-getrandom = "0.3"
-rmux-os = { workspace = true }
-windows-sys = { version = "0.61.2", features = [
-    "Win32_Foundation",
-    "Win32_Security",
-    "Win32_Security_Authorization",
-    "Win32_System_Console",
-    "Win32_System_Diagnostics_ToolHelp",
-    "Win32_System_IO",
-    "Win32_System_Pipes",
-    "Win32_Storage_FileSystem",
-    "Win32_System_JobObjects",
-    "Win32_System_SystemInformation",
-    "Win32_System_Threading",
-] }
-
-[target.'cfg(windows)'.dev-dependencies]
-tokio = { version = "1.52.1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }

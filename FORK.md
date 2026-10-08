@@ -7,7 +7,9 @@ an rmux daemon. The plan and its reasons are in flolep2607/cctop#197.
 ## What differs from upstream
 
 - **Published names.** The crates cctop builds on go to crates.io as
-  `cctop-rmux-*`: today `cctop-rmux-types`, `-proto`, `-os`, `-ipc` and `-sdk`.
+  `cctop-rmux-*`: `cctop-rmux-types`, `-proto`, `-os`, `-ipc` and `-sdk`, which
+  cctop's queries use, and `-core`, `-pty`, `-web-crypto`, `-server` and
+  `-client`, which are the daemon and attach client cctop builds in.
   Only `[package] name` changes. Each keeps its upstream library name, and the
   dependency keys keep the upstream names through `package =` in the root
   `[workspace.dependencies]`, so the code still says `use rmux_sdk::…`.
@@ -19,8 +21,14 @@ an rmux daemon. The plan and its reasons are in flolep2607/cctop#197.
   workspace, as is upstream's release tooling (the release workflows,
   Chocolatey, snap, the Nix flake, the packaging scripts). The `rmux` CLI
   package stays, unpublished, as the daemon the SDK's integration tests drive.
-  `rmux-core`, `-pty`, `-web-crypto`, `-server` and `-client` stay unpublished
-  until cctop builds the daemon in.
+- **For an embedded daemon.** Three additions, all for a program that ships the
+  server inside its own binary and must never reach anybody else's daemon:
+  `RmuxBuilder::connect_or_start_with` starts a daemon from a command the
+  caller gives, on an explicit socket, with nothing discovered from the
+  environment or `PATH`; `DaemonConfig::without_tmux_shim` keeps the `tmux`
+  shim (which runs an `rmux` binary) off its panes' `PATH`; and
+  `WEB_SHARE_PROTOCOL_VERSION` is public, so a pinned copy of the share page
+  can be tested against the server it ships with.
 - **Toolchain.** Pinned to cctop's channel (`rust-toolchain.toml`).
 
 ## Releasing

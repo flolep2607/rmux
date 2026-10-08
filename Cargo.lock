@@ -192,6 +192,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "cctop-rmux-client"
+version = "0.10.0"
+dependencies = [
+ "cctop-rmux-core",
+ "cctop-rmux-ipc",
+ "cctop-rmux-os",
+ "cctop-rmux-proto",
+ "cctop-rmux-pty",
+ "cctop-rmux-sdk",
+ "cctop-rmux-server",
+ "libc",
+ "rustix",
+ "signal-hook",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "cctop-rmux-core"
+version = "0.10.0"
+dependencies = [
+ "cctop-rmux-proto",
+ "chrono",
+ "compact_str",
+ "regex",
+ "unicode-width 0.1.14",
+]
+
+[[package]]
 name = "cctop-rmux-ipc"
 version = "0.10.0"
 dependencies = [
@@ -223,8 +252,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "cctop-rmux-sdk"
+name = "cctop-rmux-pty"
 version = "0.10.0"
+dependencies = [
+ "cctop-rmux-os",
+ "cctop-rmux-types",
+ "libc",
+ "rustix",
+ "tracing",
+]
+
+[[package]]
+name = "cctop-rmux-sdk"
+version = "0.10.1"
 dependencies = [
  "bincode",
  "cctop-rmux-ipc",
@@ -241,10 +281,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "cctop-rmux-server"
+version = "0.10.0"
+dependencies = [
+ "async-recursion",
+ "base64",
+ "bincode",
+ "cctop-rmux-core",
+ "cctop-rmux-ipc",
+ "cctop-rmux-os",
+ "cctop-rmux-proto",
+ "cctop-rmux-pty",
+ "cctop-rmux-web-crypto",
+ "chrono",
+ "getrandom 0.3.4",
+ "glob",
+ "hkdf",
+ "httparse",
+ "regex",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "static_assertions",
+ "subtle",
+ "tokio",
+ "toml",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
 name = "cctop-rmux-types"
 version = "0.10.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "cctop-rmux-web-crypto"
+version = "0.10.0"
+dependencies = [
+ "chacha20poly1305",
+ "hex-literal",
+ "hkdf",
+ "libcrux-ml-kem",
+ "sha2",
+ "subtle",
+ "wasm-bindgen",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1277,114 +1364,23 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "rmux"
 version = "0.10.0"
 dependencies = [
+ "cctop-rmux-client",
+ "cctop-rmux-core",
  "cctop-rmux-os",
  "cctop-rmux-proto",
+ "cctop-rmux-pty",
  "cctop-rmux-sdk",
+ "cctop-rmux-server",
  "chrono",
  "clap",
  "embed-manifest",
  "libc",
  "qrcode",
  "ratatui",
- "rmux-client",
- "rmux-core",
- "rmux-pty",
- "rmux-server",
  "rustix",
  "serde_json",
  "tokio",
  "windows-sys",
-]
-
-[[package]]
-name = "rmux-client"
-version = "0.10.0"
-dependencies = [
- "cctop-rmux-ipc",
- "cctop-rmux-os",
- "cctop-rmux-proto",
- "cctop-rmux-sdk",
- "libc",
- "rmux-core",
- "rmux-pty",
- "rmux-server",
- "rustix",
- "signal-hook",
- "tokio",
- "tracing",
- "windows-sys",
-]
-
-[[package]]
-name = "rmux-core"
-version = "0.10.0"
-dependencies = [
- "cctop-rmux-proto",
- "chrono",
- "compact_str",
- "regex",
- "unicode-width 0.1.14",
-]
-
-[[package]]
-name = "rmux-pty"
-version = "0.10.0"
-dependencies = [
- "cctop-rmux-os",
- "cctop-rmux-types",
- "getrandom 0.3.4",
- "libc",
- "rustix",
- "tokio",
- "tracing",
- "windows-sys",
-]
-
-[[package]]
-name = "rmux-server"
-version = "0.10.0"
-dependencies = [
- "async-recursion",
- "base64",
- "bincode",
- "cctop-rmux-ipc",
- "cctop-rmux-os",
- "cctop-rmux-proto",
- "chrono",
- "getrandom 0.3.4",
- "glob",
- "hkdf",
- "httparse",
- "regex",
- "rmux-core",
- "rmux-pty",
- "rmux-web-crypto",
- "rustix",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "static_assertions",
- "subtle",
- "tokio",
- "toml",
- "tracing",
- "zeroize",
-]
-
-[[package]]
-name = "rmux-web-crypto"
-version = "0.10.0"
-dependencies = [
- "chacha20poly1305",
- "hex-literal",
- "hkdf",
- "libcrux-ml-kem",
- "sha2",
- "subtle",
- "wasm-bindgen",
- "x25519-dalek",
- "zeroize",
 ]
 
 [[package]]

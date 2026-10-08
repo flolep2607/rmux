@@ -1,14 +1,16 @@
 [package]
-name = "rmux-web-crypto"
+name = "cctop-rmux-web-crypto"
 version = "0.10.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-# Not published by this fork yet: it is the next stage of flolep2607/cctop#197.
-publish = false
-description = "rmux web-share E2EE core: X25519 + ML-KEM-768 hybrid sessions, ChaCha20-Poly1305 records, and WASM bindings."
+publish = true
+description = "cctop's fork of rmux-web-crypto. rmux web-share E2EE core: X25519 + ML-KEM-768 hybrid sessions, ChaCha20-Poly1305 records, and WASM bindings."
 repository.workspace = true
 
+# Published under cctop's name, built under upstream's: dependents and
+# merges from Helvesec/rmux keep saying `rmux_web_crypto`.
 [lib]
+name = "rmux_web_crypto"
 crate-type = ["rlib", "cdylib"]
 
 [features]
