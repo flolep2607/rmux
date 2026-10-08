@@ -70,6 +70,38 @@ pub(crate) async fn connect_or_start_transport(
     connect_or_start_transport_for_platform(endpoint, deadline, caller_cwd).await
 }
 
+/// Connects to `socket_path`, running `daemon` to start one if nothing answers.
+///
+/// The explicit form of [`connect_or_start_transport`]: nothing is discovered.
+/// No endpoint variable, no daemon binary looked up on `PATH` or named by
+/// `RMUX_SDK_DAEMON_BINARY`, and no timeout from `RMUX_SDK_TIMEOUT_MS`. The
+/// command is run as given, detached into a session of its own with inherited
+/// descriptors closed, exactly as the default path runs `rmux`; startup races
+/// are serialized by the same lock.
+#[cfg(unix)]
+pub(crate) async fn connect_or_start_transport_with(
+    socket_path: &Path,
+    timeout: Duration,
+    mut daemon: std::process::Command,
+) -> Result<TransportClient> {
+    let deadline = OperationDeadline::from_timeout(Some(timeout));
+    let outcome = crate::bootstrap::startup_unix::connect_or_start_with_timeout(
+        socket_path,
+        move || async move {
+            rmux_os::daemon::configure_hidden_daemon_command(&mut daemon, true);
+            rmux_os::daemon::spawn_hidden_daemon_command_requiring_job_breakaway(&mut daemon)
+                .map(drop)
+        },
+        deadline.remaining_timeout(),
+        crate::bootstrap::startup_unix::STARTUP_POLL_INTERVAL,
+    )
+    .await
+    .map_err(startup_error)?;
+    let transport = TransportClient::spawn(outcome.into_stream()).with_operation_deadline(deadline);
+    startup_config::wait_until_loaded(&transport, deadline).await?;
+    Ok(transport.reusable())
+}
+
 pub(crate) struct ConnectedTransport {
     pub(crate) endpoint: RmuxEndpoint,
     pub(crate) transport: TransportClient,
