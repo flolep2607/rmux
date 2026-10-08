@@ -304,8 +304,8 @@ mod tests {
 
     #[test]
     fn invalid_csi_body_bytes_are_never_retained_as_terminal_responses() {
-        for leader in [b'?', b'>', b'1'] {
-            for invalid in [b'\0', b'\r', b'\x1b', b'\x7f', b'\x80', b'\xff'] {
+        for leader in *b"?>1" {
+            for invalid in *b"\0\r\x1b\x7f\x80\xff" {
                 let input = [b'\x1b', b'[', leader, invalid];
                 assert_eq!(
                     decode_attached_terminal_control_after_append(&input, false, 3),

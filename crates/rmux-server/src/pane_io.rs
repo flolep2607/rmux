@@ -1912,7 +1912,6 @@ fn collect_final_attach_output_batch(
             bytes,
             passthroughs: batch_passthroughs,
             close_after_render,
-            sustained: _,
             ..
         } => {
             output_bytes.extend_from_slice(&bytes);
