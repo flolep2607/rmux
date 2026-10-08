@@ -495,3 +495,58 @@ async fn shutdown_maps_handshake_decode_error_to_stable_unsupported_feature() {
         error => panic!("expected unsupported error, got {error:?}"),
     }
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_explicit_daemon_start_refuses_to_discover_the_endpoint() {
+    // `true` would exit at once; it must never be run, because the default
+    // endpoint is refused before anything is started.
+    let error = Rmux::builder()
+        .connect_or_start_with(std::process::Command::new("true"))
+        .await
+        .expect_err("the default endpoint is refused");
+    assert!(
+        error.to_string().contains("explicit Unix socket"),
+        "{error}"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_explicit_daemon_start_runs_the_given_command_for_its_socket() {
+    let dir = tempfile_dir();
+    let socket = dir.join("s");
+    let marker = dir.join("ran");
+    // A command that records that it ran and serves nothing: the start then
+    // times out, which is the expected answer, and the marker shows it was this
+    // command and not an `rmux` from PATH that was started.
+    let mut daemon = std::process::Command::new("sh");
+    daemon
+        .arg("-c")
+        .arg(format!("touch '{}'", marker.display()));
+    let error = Rmux::builder()
+        .unix_socket(&socket)
+        .default_timeout(Duration::from_millis(300))
+        .connect_or_start_with(daemon)
+        .await
+        .expect_err("nothing serves the socket");
+    let _ = error;
+    for _ in 0..100 {
+        if marker.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(marker.exists(), "the given command ran");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+fn tempfile_dir() -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    // Short: a socket path has to fit in `sun_path`.
+    let dir = std::env::temp_dir().join(format!("rsdk-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("private");
+    dir
+}

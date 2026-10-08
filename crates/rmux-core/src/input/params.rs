@@ -47,9 +47,7 @@ impl ParamList {
     }
 
     pub(crate) fn clear(&mut self) {
-        for p in &mut self.params {
-            *p = None;
-        }
+        self.params.fill(None);
         self.len = 0;
     }
 

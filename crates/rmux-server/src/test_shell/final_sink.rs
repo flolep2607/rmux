@@ -70,9 +70,6 @@ pub(crate) mod pane_observation;
 /// is checked wherever this crate's tests run, executed only on Unix.
 #[path = "final_sink/unix_child.rs"]
 mod unix_child;
-#[cfg(windows)]
-#[path = "final_sink/windows_byte_child.rs"]
-mod windows_byte_child;
 
 pub(crate) use pane_observation::{describe_missing_bracketed_mode, observe_pane_output};
 

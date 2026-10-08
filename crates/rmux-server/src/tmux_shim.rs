@@ -6,6 +6,16 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 const DISABLE_TMUX_SHIM_ENV: &str = "RMUX_DISABLE_TMUX_SHIM";
 
+/// Set by `DaemonConfig::without_tmux_shim`: the environment variable's
+/// switch, for a daemon embedded in a program that should not depend on its
+/// environment to get it.
+static DISABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Stops every daemon in this process from putting the shim on a pane's PATH.
+pub(crate) fn disable() {
+    DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub(crate) fn apply_tmux_shim_environment(
     environment: &mut HashMap<String, String>,
     socket_path: &Path,
@@ -28,7 +38,9 @@ pub(crate) fn cleanup_tmux_shim(socket_path: &Path) {
 
 #[cfg(unix)]
 fn ensure_tmux_shim(socket_path: &Path) -> Option<PathBuf> {
-    if env_flag_enabled(DISABLE_TMUX_SHIM_ENV) {
+    if DISABLED.load(std::sync::atomic::Ordering::Relaxed)
+        || env_flag_enabled(DISABLE_TMUX_SHIM_ENV)
+    {
         return None;
     }
     let rmux = public_rmux_binary()?;

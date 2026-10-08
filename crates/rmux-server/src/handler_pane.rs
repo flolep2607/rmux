@@ -47,9 +47,6 @@ mod pane_split_effects;
 mod pane_timer_mutations;
 #[path = "handler_pane/transfer.rs"]
 mod pane_transfer;
-#[cfg(windows)]
-#[path = "handler_pane/windows_console_sequence.rs"]
-mod pane_windows_console_sequence;
 
 pub(in crate::handler) use pane_attached_input::bracketed_paste::{
     strip_bracketed_paste_markers, strip_bracketed_paste_markers_after_append,

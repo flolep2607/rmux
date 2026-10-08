@@ -86,6 +86,7 @@ pub struct DaemonConfig {
     startup_ready_fd: Option<i32>,
     #[cfg(windows)]
     startup_ready_event: Option<OsString>,
+    tmux_shim: bool,
 }
 
 impl DaemonConfig {
@@ -103,6 +104,7 @@ impl DaemonConfig {
             startup_ready_fd: None,
             #[cfg(windows)]
             startup_ready_event: None,
+            tmux_shim: true,
         }
     }
 
@@ -201,6 +203,18 @@ impl DaemonConfig {
             quiet,
             cwd,
         };
+        self
+    }
+
+    /// Puts no `tmux` shim on the `PATH` of this daemon's panes.
+    ///
+    /// The shim runs the public `rmux` binary beside the daemon's own, so a
+    /// program that embeds the server has none to point it at: its panes keep
+    /// the `PATH` they were given. Applies to every daemon in the process,
+    /// since the shim is decided where a pane's environment is built.
+    #[must_use]
+    pub const fn without_tmux_shim(mut self) -> Self {
+        self.tmux_shim = false;
         self
     }
 
@@ -320,6 +334,9 @@ impl ServerDaemon {
     pub async fn bind(self) -> io::Result<ServerHandle> {
         #[cfg(unix)]
         {
+            if !self.config.tmux_shim {
+                crate::tmux_shim::disable();
+            }
             let bound_listener = bind_unix_listener_at(self.config.socket_path())?;
             let socket_access = UnixSocketAccessController::new(
                 self.config.socket_path(),
@@ -532,8 +549,4 @@ impl Drop for ServerHandle {
 
 #[cfg(all(test, unix))]
 #[path = "daemon_tests/unix.rs"]
-mod tests;
-
-#[cfg(all(test, windows))]
-#[path = "daemon_tests/windows.rs"]
 mod tests;

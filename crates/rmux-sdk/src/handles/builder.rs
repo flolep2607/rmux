@@ -4,6 +4,8 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[cfg(unix)]
+use super::rmux::connect_or_start_transport_with;
 use super::rmux::{connect_or_start_transport, connect_transport_to_endpoint, Rmux};
 use crate::bootstrap::discovery;
 use crate::{Result, RmuxEndpoint};
@@ -133,6 +135,44 @@ impl RmuxBuilder {
             connected.endpoint,
             self.default_timeout,
             connected.transport,
+        ))
+    }
+
+    /// Connects to the configured Unix socket, running `daemon` to start a
+    /// daemon there if none is answering.
+    ///
+    /// For a program that ships its own daemon and must never reach anybody
+    /// else's: unlike [`Self::connect_or_start`], nothing is discovered. The
+    /// endpoint has to be an explicit [`RmuxEndpoint::UnixSocket`] — the
+    /// default one is refused, since resolving it reads `RMUX_SDK_ENDPOINT`,
+    /// `$RMUX` and `RMUX_TMPDIR` — and `daemon` is run exactly as given rather
+    /// than an `rmux` looked up on `PATH` or named by `RMUX_SDK_DAEMON_BINARY`.
+    /// It must serve the socket it is started for. The startup deadline is this
+    /// builder's default timeout, or [`discovery::V1_DEFAULT_TIMEOUT`], and
+    /// never `RMUX_SDK_TIMEOUT_MS`.
+    ///
+    /// The command is detached into a session of its own with its inherited
+    /// descriptors closed, as the default path starts `rmux`, and concurrent
+    /// starts on one socket are serialized by the same lock.
+    #[cfg(unix)]
+    pub async fn connect_or_start_with(self, daemon: std::process::Command) -> Result<Rmux> {
+        let RmuxEndpoint::UnixSocket(socket_path) = &self.endpoint else {
+            return Err(crate::RmuxError::transport(
+                "connect or start rmux daemon",
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "connect_or_start_with needs an explicit Unix socket endpoint",
+                ),
+            ));
+        };
+        let timeout = self
+            .default_timeout
+            .unwrap_or(discovery::V1_DEFAULT_TIMEOUT);
+        let transport = connect_or_start_transport_with(socket_path, timeout, daemon).await?;
+        Ok(Rmux::from_connected_transport(
+            self.endpoint,
+            self.default_timeout,
+            transport,
         ))
     }
 }

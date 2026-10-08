@@ -1,6 +1,10 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 #![deny(clippy::await_holding_lock)]
+// `#[async_recursion]` (pinned at 1.1.1) marks the boxed future it returns
+// `#[must_use]`, which a `Pin<Box<dyn Future>>` already is, and newer clippy
+// calls that doubling a lint. The attribute is the macro's, not this crate's.
+#![allow(clippy::double_must_use)]
 
 //! Tokio-based detached RPC server for RMUX.
 
@@ -174,6 +178,13 @@ pub use daemon::{
     default_socket_path, ConfigFileSelection, ConfigLoadOptions, DaemonConfig, ServerDaemon,
     ServerHandle,
 };
+/// The browser share's protocol version: the one `protocol_version` a share
+/// page's handshake may carry for this daemon to accept it.
+///
+/// Public so that a program shipping a pinned copy of the share page beside
+/// this server (cctop's `/term/`) can test that the two agree.
+#[cfg(all(any(unix, windows), feature = "web"))]
+pub const WEB_SHARE_PROTOCOL_VERSION: u16 = web::WEB_SHARE_PROTOCOL_VERSION;
 
 /// Runs the private platform FIFO reader helper when its hidden invocation flag is present.
 ///

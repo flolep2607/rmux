@@ -173,8 +173,8 @@ fn fixture_hex<const N: usize>(fixture: &str, name: &str) -> [u8; N] {
 fn decode_hex_array<const N: usize>(hex: &str) -> [u8; N] {
     assert_eq!(hex.len(), N * 2, "unexpected hex length");
     let mut out = [0u8; N];
-    for (index, chunk) in hex.as_bytes().chunks_exact(2).enumerate() {
-        out[index] = (hex_nibble(chunk[0]) << 4) | hex_nibble(chunk[1]);
+    for (index, [high, low]) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
+        out[index] = (hex_nibble(*high) << 4) | hex_nibble(*low);
     }
     out
 }

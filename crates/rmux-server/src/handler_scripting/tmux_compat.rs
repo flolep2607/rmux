@@ -122,7 +122,7 @@ fn strip_run_shell_flag(input: &str) -> Option<&str> {
     let flag_end = rest
         .char_indices()
         .find_map(|(index, character)| character.is_whitespace().then_some(index))
-        .map_or(rest.len(), |index| index);
+        .unwrap_or(rest.len());
     let flag = &rest[..flag_end];
     if flag.is_empty()
         || flag

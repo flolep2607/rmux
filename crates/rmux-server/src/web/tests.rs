@@ -100,7 +100,7 @@ fn create_returns_secret_urls_but_list_is_redacted() {
     let redacted = listed.shares[0].spectator_url.as_deref().expect("url");
     assert_eq!(
         redacted,
-        format!("https://share.rmux.io/#e=wss://share.example/share&t=[REDACTED]")
+        "https://share.rmux.io/#e=wss://share.example/share&t=[REDACTED]".to_string()
     );
 }
 

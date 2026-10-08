@@ -25,6 +25,8 @@ mod command_process;
 #[path = "rmux/connect.rs"]
 mod connect;
 
+#[cfg(unix)]
+pub(crate) use connect::connect_or_start_transport_with;
 use connect::connect_transport;
 pub(crate) use connect::{connect_or_start_transport, connect_transport_to_endpoint};
 

@@ -1,14 +1,18 @@
 [package]
-name = "rmux-core"
+name = "cctop-rmux-core"
 version = "0.10.0"
 edition.workspace = true
-# Not published by this fork yet: it is the next stage of flolep2607/cctop#197.
-publish = false
+publish = true
 license.workspace = true
 repository.workspace = true
-description = "Core session, pane, layout, format, hook, and buffer model for the RMUX terminal multiplexer."
+description = "cctop's fork of rmux-core. Core session, pane, layout, format, hook, and buffer model for the RMUX terminal multiplexer."
 keywords = ["terminal", "multiplexer", "core"]
 categories = ["command-line-interface"]
+
+# Published under cctop's name, built under upstream's: dependents and
+# merges from Helvesec/rmux keep saying `rmux_core`.
+[lib]
+name = "rmux_core"
 
 [features]
 # Test-only seams for dependent crates' tests. Off by default, so a published

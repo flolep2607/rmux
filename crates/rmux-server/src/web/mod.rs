@@ -18,6 +18,7 @@ mod websocket;
 
 pub(crate) const WEB_RECOVERY_CONTENT_BYTES_MAX: usize = 3 * 512 * 1024 - 4 * 1024;
 
+pub(crate) use protocol::WEB_SHARE_PROTOCOL_VERSION;
 pub(crate) use record::{
     WebPaneTarget, WebSessionTarget, WebShareAccess, WebShareConnectRole, WebShareConnectionCounts,
     WebShareRevokeReason, WebShareTarget,

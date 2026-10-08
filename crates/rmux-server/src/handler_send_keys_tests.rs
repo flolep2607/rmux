@@ -42,10 +42,6 @@ mod read_only_navigation_security;
 #[path = "handler_send_keys_tests/kitty_keyboard.rs"]
 mod kitty_keyboard;
 
-#[cfg(windows)]
-#[path = "handler_send_keys_tests/windows_console_repeat.rs"]
-mod windows_console_repeat;
-
 #[path = "handler_send_keys_tests/bracketed_paste_live.rs"]
 mod bracketed_paste_live;
 

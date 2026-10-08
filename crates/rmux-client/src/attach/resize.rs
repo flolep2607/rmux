@@ -6,9 +6,6 @@ use rustix::termios::tcgetwinsize;
 #[cfg(target_os = "linux")]
 #[path = "resize/linux.rs"]
 mod platform;
-#[cfg(target_os = "macos")]
-#[path = "resize/macos.rs"]
-mod platform;
 
 pub(super) use platform::{ResizeWatcher, SignalMaskGuard};
 

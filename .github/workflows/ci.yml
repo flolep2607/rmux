@@ -5,8 +5,8 @@ name: CI
 # cross-platform CLI and its release channels; this one checks what the fork
 # ships: the published crates build, lint clean and pass their tests on Linux,
 # package for crates.io, and follow the release rules in tools/release-plan.sh.
-# The rest of the workspace is still compiled, because the next crates to be
-# published (the server and the attach client) live in it.
+# The rest of the workspace — the unpublished `rmux` CLI the SDK's tests
+# drive — is still compiled.
 
 on:
   push:
@@ -46,9 +46,8 @@ jobs:
           key: lint
       - run: cargo fmt --all --check
       # Clippy holds the published crates, tests included, to the pinned
-      # toolchain's lints. The rest of the workspace has to compile without a
-      # warning; its own clippy pass comes with the stage that publishes it,
-      # rather than as a sweep of upstream code cctop does not ship yet.
+      # toolchain's lints. The rest of the workspace, the `rmux` CLI cctop does
+      # not ship, has to compile without a warning.
       - name: Clippy the published crates
         run: |
           mapfile -t crates < <(cargo metadata --format-version 1 --no-deps --locked |
@@ -61,6 +60,12 @@ jobs:
   # starts it on a socket under its own temporary directory.
   test:
     runs-on: ubuntu-24.04
+    env:
+      # The server's command queue has large futures in a debug build, and its
+      # tests run them on the test harness's threads: at the default 2 MiB some
+      # overflow. Upstream's gates set the same 8 MiB, which is also the
+      # daemon's own worker stack (src/server_runtime.rs).
+      RUST_MIN_STACK: "8388608"
     steps:
       - uses: actions/checkout@v6
         with:
