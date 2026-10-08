@@ -79,10 +79,6 @@ use unix_controller::UnixProcessGroup;
     ))
 ))]
 mod unix_group_liveness;
-#[cfg(windows)]
-mod windows;
-#[cfg(windows)]
-use windows::resume_suspended_process;
 
 /// A child whose descendants are isolated with a process group on Unix targets
 /// supporting `waitid(WNOWAIT)`, or with a Job Object on Windows. Other Unix

@@ -20,14 +20,6 @@ use rmux_os::identity::UserIdentity;
 use rustix::event::{poll, PollFd, PollFlags, Timespec};
 #[cfg(unix)]
 use rustix::net::RecvFlags;
-#[cfg(windows)]
-#[path = "stream_windows.rs"]
-mod windows;
-
-#[cfg(windows)]
-pub use windows::{
-    connect_blocking, connect_windows_pipe, BlockingLocalStream, LocalStream, WindowsPipeClient,
-};
 
 /// Identity of a connected local peer.
 #[derive(Debug, Clone, PartialEq, Eq)]
