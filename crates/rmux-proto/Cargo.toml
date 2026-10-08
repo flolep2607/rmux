@@ -1,17 +1,22 @@
 [package]
-name = "rmux-proto"
+name = "cctop-rmux-proto"
 version = "0.10.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "RMUX detached IPC protocol DTOs, framing, and wire-safe error types."
+description = "cctop's fork of rmux-proto. RMUX detached IPC protocol DTOs, framing, and wire-safe error types."
 keywords = ["terminal", "multiplexer", "protocol"]
 categories = ["command-line-interface", "asynchronous"]
 publish = true
 
+# Published under cctop's name, built under upstream's: dependents and
+# merges from Helvesec/rmux keep saying `rmux_proto`.
+[lib]
+name = "rmux_proto"
+
 [dependencies]
 bincode = "1.3.3"
-rmux-types = { path = "../rmux-types", version = "0.10.0", features = ["serde"] }
+rmux-types = { workspace = true, features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 thiserror = "2.0"
