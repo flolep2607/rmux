@@ -60,6 +60,12 @@ jobs:
   # starts it on a socket under its own temporary directory.
   test:
     runs-on: ubuntu-24.04
+    env:
+      # The server's command queue has large futures in a debug build, and its
+      # tests run them on the test harness's threads: at the default 2 MiB some
+      # overflow. Upstream's gates set the same 8 MiB, which is also the
+      # daemon's own worker stack (src/server_runtime.rs).
+      RUST_MIN_STACK: "8388608"
     steps:
       - uses: actions/checkout@v6
         with:
