@@ -19,9 +19,6 @@ where
 {
     platform::run_internal_fifo_reader_helper(arguments)
 }
-#[cfg(windows)]
-#[path = "buffer_file_io/windows.rs"]
-mod platform;
 
 #[cfg(unix)]
 pub(crate) async fn read(path: PathBuf) -> io::Result<Vec<u8>> {

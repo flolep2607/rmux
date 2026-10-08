@@ -14,8 +14,6 @@ mod backend;
 mod child;
 mod pty;
 mod size;
-#[cfg(windows)]
-mod windows_console_input;
 
 #[cfg(any(test, all(not(unix), not(windows))))]
 pub(crate) mod unsupported_op {

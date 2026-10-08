@@ -14,9 +14,6 @@ use rustix::event::{poll, PollFd, PollFlags, Timespec};
 use rustix::fs::{Mode, OFlags};
 use tokio::task::JoinHandle;
 
-#[cfg(target_os = "macos")]
-#[path = "darwin_fifo_reader.rs"]
-mod fifo_reader;
 #[cfg(not(target_os = "macos"))]
 #[path = "fifo_reader_fallback.rs"]
 mod fifo_reader;
