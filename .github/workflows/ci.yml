@@ -100,6 +100,36 @@ jobs:
             jq -r '.packages[] | select(.publish != []) | .name')
           cargo package --locked "${crates[@]/#/-p=}"
 
+  # The published crates' rustdoc, as dependents see them. Built twice: once
+  # against the lock, and once after `cargo update`, because a dependent never
+  # reads this lock — `cargo install cctop` and cctop's cargo-semver-checks
+  # resolve the newest compatible versions. That is how cctop-rmux-client
+  # 0.10.0 broke: rustix 1.1.5 made `rustix::runtime` private, every job here
+  # stayed green on the locked 1.1.4, and cctop's release-plan failed building
+  # this crate's docs. The second build fails when an upstream release breaks
+  # a published crate, before a release ships it or a dependent finds it.
+  doc:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: doc
+      - name: Document the published crates against the lock
+        run: |
+          mapfile -t crates < <(cargo metadata --format-version 1 --no-deps --locked |
+            jq -r '.packages[] | select(.publish != []) | .name')
+          cargo doc --locked --no-deps "${crates[@]/#/-p=}"
+      - name: Document them again on the newest compatible dependencies
+        run: |
+          mapfile -t crates < <(cargo metadata --format-version 1 --no-deps --locked |
+            jq -r '.packages[] | select(.publish != []) | .name')
+          cargo update
+          cargo doc --no-deps "${crates[@]/#/-p=}"
+
   # The release rules (tools/release-plan.sh): on a commit that moves the
   # release version, every published crate that changed since the last
   # `cctop-v*` tag is bumped, an unchanged one is not, and a crate whose API

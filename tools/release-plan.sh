@@ -215,6 +215,16 @@ breaking() {
     local out rc
     for name in "$@"; do
         jq -e --arg n "$name" 'has($n)' <<<"$base_meta" >/dev/null || continue
+        # A crate that already took a breaking bump is counted as broken
+        # without asking: no verdict could require more of it, and its
+        # dependents owe the same bumps either way. This is also the way out
+        # when the baseline no longer builds — cctop-rmux-client 0.10.0 cannot
+        # compile on rustix 1.1.5, which the tool resolves — since the
+        # conservative answer then is the breaking bump, not a waiver.
+        if is_breaking "$(version_of "$name" "$base_meta")" "$(version_of "$name" "$head_meta")"; then
+            echo "$name"
+            continue
+        fi
         echo "cargo-semver-checks: $name against $base" >&2
         # `--release-type minor` asks only "is anything breaking?": under it
         # just the lints that need a breaking bump fail, whichever way the
