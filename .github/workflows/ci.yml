@@ -148,4 +148,15 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-semver-checks@${{ steps.semver-checks.outputs.version }}
-      - run: tools/release-plan.sh check
+      # Release 0.10.3 alone answers the API question by hand. Its baseline,
+      # cctop-rmux-client 0.10.0 at cctop-v0.10.2, no longer compiles on the
+      # dependencies cargo-semver-checks resolves (rustix 1.1.5 took away the
+      # module it used), so the tool has nothing to compare against. 0.10.3
+      # changes only a crate-private module and the client's rustix features:
+      # no API broke. Keyed to the version, so the next release is checked by
+      # the tool again, against a baseline that builds.
+      - run: |
+          if [ "$(tools/release-plan.sh version)" = 0.10.3 ]; then
+            export CCTOP_BREAKING=""
+          fi
+          tools/release-plan.sh check
