@@ -35,6 +35,11 @@ an rmux daemon. The plan and its reasons are in flolep2607/cctop#197.
   upstream taking it later merges without conflict. Not taken: #226 (popups
   blank before painting), since cctop opens no popups, and #229 (the
   `RmuxShell` trait), since cctop runs its panes' commands as they are.
+- **No `rustix::runtime`.** The client's SIGWINCH watcher blocks, waits for
+  and sends the signal through libc. rustix 1.1.5 made its `runtime` module
+  (documented as being for libc implementations) crate-private, which broke
+  the client wherever 1.1.5 was resolved; upstream still uses it, and the fix
+  is one to send back.
 - **Toolchain.** Pinned to cctop's channel (`rust-toolchain.toml`).
 
 ## Releasing

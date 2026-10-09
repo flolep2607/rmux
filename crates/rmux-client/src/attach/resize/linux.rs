@@ -1,28 +1,61 @@
+// The signal plumbing goes through libc, not rustix. It used rustix's
+// `runtime` module, which rustix documents as being for libc implementations
+// only. rustix 1.1.5 renamed it to a mangled name and made `rustix::runtime`
+// crate-private, so this crate stopped building wherever 1.1.5 got resolved:
+// `cargo install` without `--locked`, cargo-semver-checks, and any dependent
+// whose lock moved forward.
+
+use std::io;
+use std::mem::MaybeUninit;
 use std::os::fd::OwnedFd;
+use std::os::unix::thread::JoinHandleExt;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::sync::{mpsc, Arc};
 use std::thread;
 
 use rmux_proto::TerminalGeometry;
-use rustix::process::{Pid, Signal};
-use rustix::runtime::{kernel_sigprocmask, kernel_sigwait, tkill, How, KernelSigSet};
-use rustix::thread::gettid;
 
 use super::terminal_geometry_from_fd;
 use crate::ClientError;
 
+/// A signal set holding SIGWINCH alone.
+fn winch_set() -> libc::sigset_t {
+    let mut set = MaybeUninit::<libc::sigset_t>::uninit();
+    // SAFETY: sigemptyset initialises the set it is given; sigaddset then
+    // adds a valid signal number to that initialised set. Neither can fail
+    // for these arguments.
+    unsafe {
+        libc::sigemptyset(set.as_mut_ptr());
+        libc::sigaddset(set.as_mut_ptr(), libc::SIGWINCH);
+        set.assume_init()
+    }
+}
+
+/// The pthread functions return their error number rather than setting errno.
+fn pthread_result(code: libc::c_int) -> io::Result<()> {
+    if code == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::from_raw_os_error(code))
+    }
+}
+
 #[derive(Debug)]
 pub(in crate::attach) struct SignalMaskGuard {
-    previous: KernelSigSet,
+    previous: libc::sigset_t,
 }
 
 impl SignalMaskGuard {
     pub(in crate::attach) fn block_winch() -> super::Result<Self> {
-        let mut signals = KernelSigSet::empty();
-        signals.insert(Signal::WINCH);
-
-        // SAFETY: Only SIGWINCH is added to the mask, which is not a libc-reserved signal.
-        let previous = unsafe { kernel_sigprocmask(How::BLOCK, Some(&signals)) }?;
+        let signals = winch_set();
+        let mut previous = MaybeUninit::<libc::sigset_t>::uninit();
+        // SAFETY: both pointers are valid for the call; on success the kernel
+        // has written the previous mask into `previous`.
+        pthread_result(unsafe {
+            libc::pthread_sigmask(libc::SIG_BLOCK, &signals, previous.as_mut_ptr())
+        })?;
+        // SAFETY: initialised by the successful call above.
+        let previous = unsafe { previous.assume_init() };
         Ok(Self { previous })
     }
 }
@@ -30,14 +63,15 @@ impl SignalMaskGuard {
 impl Drop for SignalMaskGuard {
     fn drop(&mut self) {
         // SAFETY: This restores the exact mask returned by the earlier successful call.
-        let _ = unsafe { kernel_sigprocmask(How::SETMASK, Some(&self.previous)) };
+        let _ = unsafe {
+            libc::pthread_sigmask(libc::SIG_SETMASK, &self.previous, std::ptr::null_mut())
+        };
     }
 }
 
 #[derive(Debug)]
 pub(in crate::attach) struct ResizeWatcher {
     stop: Arc<AtomicBool>,
-    tid: Arc<(Mutex<Option<Pid>>, Condvar)>,
     thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -48,32 +82,22 @@ impl ResizeWatcher {
     ) -> std::result::Result<Self, ClientError> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&stop);
-        let tid = Arc::new((Mutex::new(None), Condvar::new()));
-        let thread_tid = Arc::clone(&tid);
 
         let thread = thread::spawn(move || {
-            {
-                let (tid_lock, tid_ready) = &*thread_tid;
-                if let Ok(mut tid) = tid_lock.lock() {
-                    *tid = Some(gettid());
-                    tid_ready.notify_all();
-                }
-            }
-            let mut signals = KernelSigSet::empty();
-            signals.insert(Signal::WINCH);
+            let signals = winch_set();
 
             loop {
+                let mut signal: libc::c_int = 0;
                 // SAFETY: Only SIGWINCH is waited on, and this thread inherits a blocked mask for it.
-                let signal = match unsafe { kernel_sigwait(&signals) } {
-                    Ok(signal) => signal,
-                    Err(_) => return,
-                };
+                if unsafe { libc::sigwait(&signals, &mut signal) } != 0 {
+                    return;
+                }
 
                 if stop_flag.load(Ordering::SeqCst) {
                     return;
                 }
 
-                if signal == Signal::WINCH {
+                if signal == libc::SIGWINCH {
                     let geometry = match terminal_geometry_from_fd(&terminal_fd) {
                         Ok(Some(geometry)) => geometry,
                         Ok(None) => continue,
@@ -89,41 +113,34 @@ impl ResizeWatcher {
 
         Ok(Self {
             stop,
-            tid,
             thread: Some(thread),
         })
     }
 
-    #[cfg(test)]
-    pub(in crate::attach) fn notify_for_test(&self) -> rustix::io::Result<()> {
-        // SAFETY: `self.tid` identifies the watcher thread created above and
-        // SIGWINCH is the signal it waits on.
-        let Some(tid) = self.wait_for_tid() else {
+    /// Sends SIGWINCH to the watcher thread alone.
+    ///
+    /// Addressed by its pthread handle, which stays valid until the thread is
+    /// joined, so no kernel thread id has to be handed back from the thread
+    /// first, and a thread that has already returned is still a valid target.
+    fn signal_watcher(&self) -> io::Result<()> {
+        let Some(thread) = &self.thread else {
             return Ok(());
         };
-        unsafe { tkill(tid, Signal::WINCH) }
+        // SAFETY: the handle has not been joined, so its pthread_t is live,
+        // and SIGWINCH is the signal the watcher waits on.
+        pthread_result(unsafe { libc::pthread_kill(thread.as_pthread_t(), libc::SIGWINCH) })
     }
 
-    fn wait_for_tid(&self) -> Option<Pid> {
-        let (tid_lock, tid_ready) = &*self.tid;
-        let Ok(mut tid) = tid_lock.lock() else {
-            return None;
-        };
-        while tid.is_none() {
-            tid = tid_ready.wait(tid).ok()?;
-        }
-        *tid
+    #[cfg(test)]
+    pub(in crate::attach) fn notify_for_test(&self) -> io::Result<()> {
+        self.signal_watcher()
     }
 }
 
 impl Drop for ResizeWatcher {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        if let Some(tid) = self.wait_for_tid() {
-            // SAFETY: `tid` identifies the watcher thread created above and
-            // SIGWINCH is the signal it waits on.
-            let _ = unsafe { tkill(tid, Signal::WINCH) };
-        }
+        let _ = self.signal_watcher();
 
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
