@@ -24,7 +24,7 @@ resolver = "2"
 # `cctop-v<version>`. Each published crate has its own version, bumped only
 # when it changed; tools/release-plan.sh holds the rules.
 [workspace.metadata.cctop-release]
-version = "0.10.3"
+version = "0.10.4"
 
 # Requirements between the published crates are carets on the compatible part
 # of the version, so a patch release of one leaves the others building beside
