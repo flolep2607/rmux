@@ -29,6 +29,12 @@ an rmux daemon. The plan and its reasons are in flolep2607/cctop#197.
   shim (which runs an `rmux` binary) off its panes' `PATH`; and
   `WEB_SHARE_PROTOCOL_VERSION` is public, so a pinned copy of the share page
   can be tested against the server it ships with.
+- **Upstream pull requests merged early.** Helvesec/rmux#227, the Kitty
+  keyboard protocol's disambiguate flag, which lets a pane tell Shift+Enter
+  from Enter (Claude Code's newline). Merged as upstream's own commits, so
+  upstream taking it later merges without conflict. Not taken: #226 (popups
+  blank before painting), since cctop opens no popups, and #229 (the
+  `RmuxShell` trait), since cctop runs its panes' commands as they are.
 - **Toolchain.** Pinned to cctop's channel (`rust-toolchain.toml`).
 
 ## Releasing

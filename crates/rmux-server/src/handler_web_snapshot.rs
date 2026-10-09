@@ -407,7 +407,9 @@ mod tests {
             "\x1b[?1003l",
             "\x1b[?1005l",
             "\x1b[?1006l",
-            "\x1b[<u",
+            // Stated, not popped: a snapshot is rendered any number of times
+            // and the far side's Kitty stack is not the snapshot's to shrink.
+            "\x1b[=0;1u",
             "\x1b[>4;0m",
             "\x1b[0 q",
         );

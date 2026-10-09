@@ -47,10 +47,46 @@ async fn assert_activation_request_keeps_standard_encoding(request: &[u8], sessi
     capture.assert_contents(&handler, expected).await;
 }
 
+// `CSI = 8 u` asks only for "report all keys as escape codes", which rmux does
+// not implement, so nothing is negotiated and Shift+Enter stays the Enter an
+// application without the protocol expects.
 #[tokio::test]
-async fn live_attach_kitty_set_and_push_do_not_enable_partial_key_encoding() {
+async fn live_attach_kitty_set_of_unsupported_flags_keeps_standard_encoding() {
     assert_activation_request_keeps_standard_encoding(KITTY_SET, "kitty-set-noop").await;
-    assert_activation_request_keeps_standard_encoding(KITTY_PUSH, "kitty-push-noop").await;
+}
+
+// `CSI > 1 u` pushes disambiguate, the flag rmux does implement: from then on
+// the pane is told Shift+Enter apart from Enter, in the protocol's own form.
+#[tokio::test]
+async fn live_attach_kitty_push_of_disambiguate_encodes_shift_enter() {
+    let handler = RequestHandler::new();
+    let session = session_name("kitty-push-disambiguate");
+    let requester_pid = std::process::id();
+
+    create_send_keys_test_session(&handler, &session).await;
+    append_pane_output(&handler, &session, KITTY_PUSH).await;
+
+    let (control_tx, _control_rx) = mpsc::unbounded_channel();
+    let _attach_id = handler
+        .register_attach(requester_pid, session.clone(), control_tx)
+        .await;
+
+    let csi_u_shift_enter = b"\x1b[13;2u";
+    let capture = RawPaneInputProbe::start(
+        &handler,
+        &session,
+        "kitty-push-disambiguate",
+        csi_u_shift_enter.len(),
+    )
+    .await;
+
+    handler
+        .handle_attached_live_input_for_test(requester_pid, csi_u_shift_enter)
+        .await
+        .expect("live attach Shift+Enter input");
+
+    capture.finish(&handler, &session).await;
+    capture.assert_contents(&handler, csi_u_shift_enter).await;
 }
 
 #[tokio::test]
