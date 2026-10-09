@@ -39,7 +39,7 @@ rmux-core = { package = "cctop-rmux-core", path = "crates/rmux-core", version = 
 rmux-pty = { package = "cctop-rmux-pty", path = "crates/rmux-pty", version = "0.10" }
 rmux-web-crypto = { package = "cctop-rmux-web-crypto", path = "crates/rmux-web-crypto", version = "0.10" }
 rmux-server = { package = "cctop-rmux-server", path = "crates/rmux-server", version = "0.10" }
-rmux-client = { package = "cctop-rmux-client", path = "crates/rmux-client", version = "0.10" }
+rmux-client = { package = "cctop-rmux-client", path = "crates/rmux-client", version = "0.11" }
 
 [profile.release]
 codegen-units = 1

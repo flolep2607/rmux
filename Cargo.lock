@@ -193,7 +193,7 @@ dependencies = [
 
 [[package]]
 name = "cctop-rmux-client"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "cctop-rmux-core",
  "cctop-rmux-ipc",

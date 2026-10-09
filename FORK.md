@@ -39,7 +39,13 @@ an rmux daemon. The plan and its reasons are in flolep2607/cctop#197.
   and sends the signal through libc. rustix 1.1.5 made its `runtime` module
   (documented as being for libc implementations) crate-private, which broke
   the client wherever 1.1.5 was resolved; upstream still uses it, and the fix
-  is one to send back.
+  is one to send back. Released as cctop-rmux-client 0.11.0, a breaking bump,
+  although no public item changed: cargo-semver-checks builds the baseline
+  (0.10.0) on freshly resolved dependencies, where it no longer compiles, so
+  there was no verdict to go on, and the conservative answer to "did the API
+  break?" is yes rather than a hand-written no. `tools/release-plan.sh` counts
+  a crate that already took a breaking bump as broken without asking the
+  tool, which is what lets CI pass such a release.
 - **Toolchain.** Pinned to cctop's channel (`rust-toolchain.toml`).
 
 ## Releasing
