@@ -117,12 +117,17 @@ pub(super) fn requested_signal() -> Option<i32> {
 
 pub(super) fn interrupt_thread<T>(thread: &thread::JoinHandle<T>) {
     if let Some(signal) = requested_signal() {
+        // std's `as_pthread_t` is a u64 on every Linux target, but libc's
+        // pthread_t is only that on glibc: on musl it is `*mut c_void`, and
+        // without the cast the musl builds cctop releases do not compile. The
+        // value is the handle either way, so the cast loses nothing.
+        let handle = thread.as_pthread_t() as libc::pthread_t;
         let _ = unsafe {
             // SAFETY: `as_pthread_t` refers to the unconsumed join handle held
             // by the caller. All captured signal handlers remain installed, so
             // delivery only interrupts the output syscall and re-observes the
             // already-recorded termination.
-            libc::pthread_kill(thread.as_pthread_t(), signal)
+            libc::pthread_kill(handle, signal)
         };
     }
 }
