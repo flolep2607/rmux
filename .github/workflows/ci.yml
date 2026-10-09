@@ -80,6 +80,33 @@ jobs:
             jq -r '.packages[] | select(.publish != []) | .name')
           cargo test --locked "${crates[@]/#/-p=}"
 
+  # The published crates as cctop's release binaries build them: statically
+  # linked against musl, on x86_64 and aarch64. Everything else here builds on
+  # glibc, where libc's types can differ — cctop-rmux-client 0.11.0 passed it
+  # all and broke cctop's v0.32.0 release, because musl's `pthread_t` is a
+  # pointer where glibc's is an integer. `cargo check` needs no musl linker or
+  # cross toolchain, so both targets cost one runner. Rustc warns that it drops
+  # cctop-rmux-web-crypto's cdylib on musl; that is not a lint, so it does not
+  # fail under -D warnings, and cctop links the rlib anyway.
+  musl:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - run: rustup toolchain install
+      - run: rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: musl
+      - name: Check the published crates on musl
+        run: |
+          mapfile -t crates < <(cargo metadata --format-version 1 --no-deps --locked |
+            jq -r '.packages[] | select(.publish != []) | .name')
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            cargo check --locked --all-targets --target "$target" "${crates[@]/#/-p=}"
+          done
+
   # Packages every published crate the way `cargo publish` would, building
   # each from its packaged source: a manifest or include list that would stop
   # a release is caught here, not at release time. Cargo packages them in

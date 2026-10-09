@@ -127,8 +127,11 @@ impl ResizeWatcher {
             return Ok(());
         };
         // SAFETY: the handle has not been joined, so its pthread_t is live,
-        // and SIGWINCH is the signal the watcher waits on.
-        pthread_result(unsafe { libc::pthread_kill(thread.as_pthread_t(), libc::SIGWINCH) })
+        // and SIGWINCH is the signal the watcher waits on. The cast is the
+        // identity on glibc; on musl libc's pthread_t is a pointer while std
+        // hands the handle back as a u64 (see `interrupt_thread`).
+        let handle = thread.as_pthread_t() as libc::pthread_t;
+        pthread_result(unsafe { libc::pthread_kill(handle, libc::SIGWINCH) })
     }
 
     #[cfg(test)]
