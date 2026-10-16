@@ -510,8 +510,8 @@ const fn is_invisible_format(ch: char) -> bool {
 /// unused bits that are not zero all fail, so one text has one encoding.
 fn decode_base64(input: &[u8]) -> Option<Vec<u8>> {
     let unpadded = match input {
-        [rest @ .., b'=', b'='] if input.len() % 4 == 0 => rest,
-        [rest @ .., b'='] if input.len() % 4 == 0 => rest,
+        [rest @ .., b'=', b'='] if input.len().is_multiple_of(4) => rest,
+        [rest @ .., b'='] if input.len().is_multiple_of(4) => rest,
         _ => input,
     };
     if unpadded.len() % 4 == 1 {
