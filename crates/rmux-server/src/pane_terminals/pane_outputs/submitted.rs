@@ -14,9 +14,6 @@ pub(in crate::pane_terminals) struct AttachedSubmittedLine {
 }
 
 // Handover conversion (docs/design/live-handover.md).
-// Phase 3 of the handover (the resume runtime) is the caller; until then
-// only the tests are.
-#[cfg_attr(not(test), allow(dead_code))]
 impl AttachedSubmittedLine {
     pub(in crate::pane_terminals) fn to_handover(&self) -> (u64, String) {
         let Self { absolute_y, text } = self;

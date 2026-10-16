@@ -640,10 +640,42 @@ where
 }
 
 // Handover conversion (docs/design/live-handover.md).
-// Phase 3 of the handover (the resume runtime) is the caller; until then
-// only the tests are.
-#[cfg_attr(not(test), allow(dead_code))]
 impl PaneTerminalStore {
+    /// Puts back a pane terminal a handover carried, under the session whose
+    /// runtime owns it.
+    pub(super) fn insert_handed_over_pane(
+        &mut self,
+        session_name: SessionName,
+        pane_id: PaneId,
+        terminal: PaneTerminal,
+    ) {
+        let previous = self
+            .sessions
+            .entry(session_name)
+            .or_default()
+            .insert(pane_id, terminal);
+        // The restore refuses a pane listed twice, so there is never one to
+        // replace; replacing would drop it, which kills its process.
+        debug_assert!(previous.is_none(), "pane adopted twice");
+        if let Some(previous) = previous {
+            std::mem::forget(previous);
+        }
+    }
+
+    /// Every adopted pane's process, reaped if it died while the exec ran.
+    ///
+    /// An unreaped child's pid stays reserved until this, so there is no
+    /// window in which another process could have taken it.
+    pub(super) fn reap_handed_over_panes(&mut self) -> usize {
+        let mut exited = 0;
+        for terminal in self.sessions.values_mut().flat_map(HashMap::values_mut) {
+            if matches!(terminal.is_alive(), Ok(false)) {
+                exited += 1;
+            }
+        }
+        exited
+    }
+
     /// Every pane process, as `(session, pane id, master fd, process)`, and
     /// every session's base environment.
     #[allow(clippy::type_complexity)]

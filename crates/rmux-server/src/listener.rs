@@ -31,8 +31,13 @@ use crate::pane_io;
 use crate::server_access::apply_access_policy;
 use crate::socket_cleanup::SocketCleanup;
 
+#[cfg(unix)]
+mod handover;
 mod legacy_shutdown;
 mod lifecycle_shutdown;
+
+#[cfg(unix)]
+pub(crate) use handover::HandoverCommand;
 
 use legacy_shutdown::{
     encode_legacy_kill_server_response, inspect_legacy_kill_server_frame, LegacyKillServerFrame,
@@ -106,6 +111,25 @@ pub(crate) async fn serve(
     })?)?;
     handler.install_shutdown_handle(shutdown_handle.clone());
     handler.set_socket_path(&socket_path);
+    // A resumed daemon restores and adopts every pane before the loop below
+    // accepts its first connection; the clients that connected during the
+    // exec wait in the inherited backlog until then.
+    #[cfg(unix)]
+    let resumed = options.resume.is_some();
+    #[cfg(unix)]
+    if let Some((resume, input)) = options.resume {
+        let crate::handover::resume::ResumeInput {
+            state,
+            inherited_listener_fd,
+        } = input;
+        match handler.resume_from_handover(state).await {
+            Ok(adopted) => {
+                tracing::info!(?adopted, "resumed from a live handover");
+                resume.finish(inherited_listener_fd);
+            }
+            Err(reason) => return Err(resume.roll_back(&reason)),
+        }
+    }
     let lifecycle_events = handler
         .take_lifecycle_dispatch_receiver()
         .ok_or_else(|| io::Error::other("lifecycle dispatch receiver already active"))?;
@@ -116,7 +140,11 @@ pub(crate) async fn serve(
             .await
             .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error.to_string()))?;
     }
-    let (connection_shutdown, connection_shutdown_rx) = watch::channel(());
+    let (mut connection_shutdown, mut connection_shutdown_rx) = watch::channel(());
+    #[cfg(unix)]
+    let handover_command = options.handover_command;
+    #[cfg(unix)]
+    let mut handover_requests = options.handover_requests;
     let (hook_shutdown, hook_shutdown_rx) = oneshot::channel();
     let mut connection_tasks = JoinSet::new();
     let hook_handler = Arc::clone(&handler);
@@ -127,6 +155,15 @@ pub(crate) async fn serve(
     });
     let startup_guard = handler.start_config_loading();
     let startup_handler = Arc::clone(&handler);
+    // The state carries everything the startup config set; running it again
+    // would re-apply it over what the clients have changed since.
+    #[cfg(unix)]
+    let startup_config = if resumed {
+        crate::ConfigLoadOptions::disabled()
+    } else {
+        options.config_load
+    };
+    #[cfg(not(unix))]
     let startup_config = options.config_load;
     let startup_task = tokio::spawn(async move {
         startup_handler
@@ -167,6 +204,23 @@ pub(crate) async fn serve(
             _ = &mut shutdown => {
                 debug!("shutdown requested");
                 break;
+            }
+            Some(command) = next_handover_request(&mut handover_requests) => {
+                let HandoverCommand { options, reply } = command;
+                let error = handover::run(
+                    handover::HandoverRun {
+                        handler: &handler,
+                        listener: &listener,
+                        socket_path: &socket_path,
+                        configured_command: handover_command.as_deref(),
+                        connection_shutdown: &mut connection_shutdown,
+                        connection_shutdown_rx: &mut connection_shutdown_rx,
+                        connection_tasks: &mut connection_tasks,
+                    },
+                    options,
+                )
+                .await;
+                let _ = reply.send(error);
             }
             result = wait_server_signal(&server_signals), if server_signals.is_some() => {
                 if let Err(error) = result {
@@ -238,6 +292,17 @@ pub(crate) async fn serve(
     cleanup_on_drop.cleanup_now();
 
     Ok(())
+}
+
+/// The next handover request, or never when this daemon takes none.
+#[cfg(unix)]
+async fn next_handover_request(
+    requests: &mut Option<tokio::sync::mpsc::Receiver<HandoverCommand>>,
+) -> Option<HandoverCommand> {
+    match requests {
+        Some(requests) => requests.recv().await,
+        None => std::future::pending().await,
+    }
 }
 
 async fn quiesce_and_drain_connection_tasks_for_shutdown(

@@ -1,11 +1,14 @@
 //! The handover state format: everything a daemon holds, as one versioned
 //! blob a new binary can read (`docs/design/live-handover.md`, §2.2).
 //!
-//! This is phase 1 of the handover: the format, the conversions and their
-//! tests. Nothing at runtime writes or reads it yet. Phase 3 (quiesce and
-//! resume) calls `HandlerState::to_handover` with the readers parked and
-//! `HandlerState::restore_handover` in the new image, and adopts the pane
-//! processes the restore hands back.
+//! The format, its conversions and their tests came first (phase 1). The
+//! runtime that writes and reads it lives beside it: `listener::handover`
+//! quiesces the daemon, calls `HandlerState::to_handover` with the readers
+//! parked and execs, and the new image calls
+//! `HandlerState::restore_handover` and adopts the pane processes the
+//! restore hands back (`RequestHandler::resume_from_handover`). The pieces
+//! that cross the exec besides the state are in [`record`]; what an embedder
+//! sees is in [`api`].
 //!
 //! # The envelope
 //!
@@ -37,8 +40,6 @@
 //! every field of the real types, so a field added later does not compile
 //! until it is either carried or named here as not carried, with the reason.
 
-#![cfg_attr(not(test), allow(dead_code))]
-
 use serde::{Deserialize, Serialize};
 
 use rmux_core::handover::{
@@ -49,6 +50,16 @@ use rmux_core::handover::{
 #[cfg(test)]
 #[path = "handover/tests.rs"]
 mod tests;
+
+pub(crate) mod api;
+pub(crate) mod record;
+pub(crate) mod resume;
+pub(crate) mod verify;
+
+pub use api::{
+    run_handover_verify_helper, HandoverError, HandoverErrorKind, HandoverOptions, HandoverResume,
+    DEFAULT_HANDOVER_DEADLINE,
+};
 
 /// The schema this binary writes.
 pub(crate) const HANDOVER_SCHEMA: u32 = 1;

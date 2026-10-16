@@ -401,6 +401,17 @@ impl WebShareRegistry {
             .map(|record| record.revoke_tx.subscribe())
     }
 
+    /// How many shares are live, for a handover's admission: a browser
+    /// session holds per-connection keys no state format carries.
+    pub(crate) fn active_share_count(&self) -> usize {
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("web-share registry mutex must not be poisoned");
+        inner.prune_expired();
+        inner.summaries().len()
+    }
+
     pub(crate) fn list(&self, _request: ListWebSharesRequest) -> WebShareListResponse {
         let mut inner = self
             .inner

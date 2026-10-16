@@ -64,6 +64,25 @@ impl LocalListener {
     pub async fn accept(&self) -> io::Result<(LocalStream, PeerIdentity)> {
         accept_impl(self).await
     }
+
+    /// Wraps a listening socket this process already holds, such as one a
+    /// daemon inherited across its own re-exec with its backlog intact.
+    ///
+    /// Like [`bind`](Self::bind), it must be called inside a Tokio runtime.
+    #[cfg(unix)]
+    pub fn from_std(listener: std::os::unix::net::UnixListener) -> io::Result<Self> {
+        listener.set_nonblocking(true)?;
+        Ok(Self {
+            inner: tokio::net::UnixListener::from_std(listener)?,
+        })
+    }
+}
+
+#[cfg(unix)]
+impl std::os::fd::AsFd for LocalListener {
+    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        std::os::fd::AsFd::as_fd(&self.inner)
+    }
 }
 
 #[cfg(unix)]

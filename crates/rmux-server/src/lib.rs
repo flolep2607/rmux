@@ -52,7 +52,8 @@ mod handler;
 #[cfg(any(unix, windows))]
 #[cfg_attr(windows, allow(dead_code))]
 mod handler_support;
-// The live-handover state format (docs/design/live-handover.md).
+// Live handover: the state format and the runtime around it
+// (docs/design/live-handover.md).
 mod handover;
 #[cfg(any(unix, windows))]
 #[cfg_attr(windows, allow(dead_code))]
@@ -179,6 +180,10 @@ pub mod fuzzing {
 pub use daemon::{
     default_socket_path, ConfigFileSelection, ConfigLoadOptions, DaemonConfig, ServerDaemon,
     ServerHandle,
+};
+pub use handover::{
+    run_handover_verify_helper, HandoverError, HandoverErrorKind, HandoverOptions, HandoverResume,
+    DEFAULT_HANDOVER_DEADLINE,
 };
 /// The browser share's protocol version: the one `protocol_version` a share
 /// page's handshake may carry for this daemon to accept it.

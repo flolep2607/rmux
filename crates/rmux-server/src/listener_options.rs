@@ -20,6 +20,15 @@ pub(crate) struct ServeOptions {
     pub(crate) socket_identity: Option<SocketFileIdentity>,
     #[cfg(unix)]
     pub(crate) socket_access: Option<UnixSocketAccessController>,
+    /// The command line a handover re-executes this daemon with.
+    #[cfg(unix)]
+    pub(crate) handover_command: Option<Vec<std::ffi::OsString>>,
+    #[cfg(unix)]
+    pub(crate) handover_requests:
+        Option<tokio::sync::mpsc::Receiver<crate::listener::HandoverCommand>>,
+    /// A handover this daemon resumes from, restored before it accepts.
+    #[cfg(unix)]
+    pub(crate) resume: Option<(crate::HandoverResume, crate::handover::resume::ResumeInput)>,
 }
 
 impl ServeOptions {
@@ -41,7 +50,34 @@ impl ServeOptions {
             socket_identity: None,
             #[cfg(unix)]
             socket_access: None,
+            #[cfg(unix)]
+            handover_command: None,
+            #[cfg(unix)]
+            handover_requests: None,
+            #[cfg(unix)]
+            resume: None,
         }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn with_handover(
+        mut self,
+        command: Option<Vec<std::ffi::OsString>>,
+        requests: tokio::sync::mpsc::Receiver<crate::listener::HandoverCommand>,
+    ) -> Self {
+        self.handover_command = command;
+        self.handover_requests = Some(requests);
+        self
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn resuming(
+        mut self,
+        resume: crate::HandoverResume,
+        input: crate::handover::resume::ResumeInput,
+    ) -> Self {
+        self.resume = Some((resume, input));
+        self
     }
 
     pub(crate) fn with_web_options(

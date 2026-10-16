@@ -63,6 +63,15 @@ fn main() {
     {
         std::process::exit(exit_code);
     }
+    // A live handover runs the new binary on the old daemon's state before
+    // it commits (`--handover-verify`); that run must serve nothing.
+    if is_internal_daemon_invocation() {
+        if let Some(exit_code) =
+            rmux_server::run_handover_verify_helper(std::env::args_os().skip(2))
+        {
+            std::process::exit(exit_code);
+        }
+    }
 
     match process_locale::initialize_process_locale()
         .map_err(|error| cli::ExitFailure::new(1, error))
@@ -123,9 +132,36 @@ where
 
     match args.get(1) {
         Some(argument) if argument == INTERNAL_DAEMON_FLAG => {
-            let internal = parse_internal_daemon_args(args.into_iter().skip(2))
+            let mut daemon_args: Vec<OsString> = args.iter().skip(2).cloned().collect();
+            let resume = rmux_server::HandoverResume::take_from_args(&mut daemon_args)
                 .map_err(|error| cli::ExitFailure::new(1, error))?;
-            run_hidden_daemon(internal)
+            let internal = match parse_internal_daemon_args(daemon_args.clone().into_iter()) {
+                Ok(internal) => internal,
+                Err(error) => {
+                    // A daemon handed over to this binary cannot be dropped
+                    // for a command line it does not understand: give it back.
+                    if let Some(resume) = resume {
+                        return Err(cli::ExitFailure::new(
+                            1,
+                            resume.roll_back(&error).to_string(),
+                        ));
+                    }
+                    return Err(cli::ExitFailure::new(1, error));
+                }
+            };
+            // Without `--startup-ready-fd N`: that fd was the starting
+            // client's, signalled once, and in a resumed image its number
+            // may name anything.
+            let mut handover_command = vec![args[0].clone(), args[1].clone()];
+            let mut rest = daemon_args.into_iter();
+            while let Some(argument) = rest.next() {
+                if argument == "--startup-ready-fd" {
+                    let _ = rest.next();
+                    continue;
+                }
+                handover_command.push(argument);
+            }
+            run_hidden_daemon(internal, handover_command, resume)
                 .map_err(|error| error.to_string())
                 .map(|()| 0)
                 .map_err(|error| cli::ExitFailure::new(1, error))
@@ -314,13 +350,30 @@ where
 }
 
 #[cfg(any(not(feature = "tiny-cli"), debug_assertions))]
-fn run_hidden_daemon(args: InternalDaemonArgs) -> io::Result<()> {
+fn is_internal_daemon_invocation() -> bool {
+    env::args_os()
+        .nth(1)
+        .is_some_and(|argument| argument == INTERNAL_DAEMON_FLAG)
+}
+
+#[cfg(any(not(feature = "tiny-cli"), debug_assertions))]
+fn run_hidden_daemon(
+    args: InternalDaemonArgs,
+    handover_command: Vec<OsString>,
+    resume: Option<rmux_server::HandoverResume>,
+) -> io::Result<()> {
     reject_unsupported_web_args(&args)?;
 
     let mut config = match args.socket_path {
         Some(socket_path) => DaemonConfig::new(socket_path),
         None => DaemonConfig::with_default_socket_path()?,
     };
+    // The command line this daemon was started with is the one a handover
+    // re-executes it with, resume flags aside.
+    config = config.with_handover_command(handover_command);
+    if let Some(resume) = resume {
+        config = config.resuming(resume);
+    }
     config = match args.config_selection {
         ServerConfigFileSelection::Disabled => config,
         ServerConfigFileSelection::Default => {

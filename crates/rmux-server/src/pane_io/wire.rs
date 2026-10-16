@@ -246,6 +246,19 @@ pub(super) async fn emit_detached_attach_stop(
     emit_attach_bytes(stream, &bytes).await
 }
 
+/// The stop a client gets when the daemon is handing itself over to a new
+/// binary. The client exits cleanly, and the reason tells a wrapper (cctop's
+/// tabs) to attach again once the socket answers, rather than to treat the
+/// session as gone.
+pub(super) async fn emit_upgrading_attach_stop(
+    stream: &AttachTransport,
+    current_target: &OpenAttachTarget,
+) -> io::Result<()> {
+    let mut bytes = current_target.outer_terminal.attach_stop_sequence();
+    bytes.extend_from_slice(b"[server upgrading]\r\n");
+    emit_attach_bytes(stream, &bytes).await
+}
+
 pub(super) async fn emit_exited_attach_stop(
     stream: &AttachTransport,
     current_target: &OpenAttachTarget,

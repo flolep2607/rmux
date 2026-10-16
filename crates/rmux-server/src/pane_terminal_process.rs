@@ -171,15 +171,38 @@ impl PaneTerminal {
     }
 }
 
-// Handover conversion (docs/design/live-handover.md). Only the capture side
-// lives here: rebuilding a `PaneTerminal` needs the inherited fd and a child
-// adopted by pid, which is the resume runtime's (design §3, phase 3).
-// Phase 3 of the handover (the resume runtime) is the caller; until then
-// only the tests are.
-#[cfg_attr(not(test), allow(dead_code))]
+// Handover conversion (docs/design/live-handover.md, §3).
 impl PaneTerminal {
+    /// Rebuilds a pane's terminal in the image a handover exec'd into, from
+    /// the master it inherited and the child it adopted by pid.
+    pub(crate) fn from_handover(
+        master: PtyMaster,
+        child: PtyChild,
+        process: crate::handover::PaneProcessV1,
+    ) -> Self {
+        use std::os::unix::process::ExitStatusExt;
+
+        let crate::handover::PaneProcessV1 {
+            // The child was adopted by this pid already.
+            pid: _,
+            exit_status,
+            termination_attempted,
+            runtime_window_name,
+            profile,
+        } = process;
+        Self {
+            master,
+            child,
+            exit_status: exit_status.map(ExitStatus::from_raw),
+            termination_attempted,
+            runtime_window_name,
+            profile: TerminalProfile::from_handover(profile),
+        }
+    }
+
     /// The master's fd number and the process data. The fd itself is not
-    /// touched: the exec carries it, once phase 3 clears its `FD_CLOEXEC`.
+    /// touched: the exec carries it, once the handover clears its
+    /// `FD_CLOEXEC`.
     pub(crate) fn to_handover(&self) -> (i32, crate::handover::PaneProcessV1) {
         use std::os::fd::AsRawFd;
         use std::os::unix::process::ExitStatusExt;

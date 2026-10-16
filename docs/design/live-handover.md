@@ -1,6 +1,8 @@
 # Live handover: upgrading a running daemon without its panes noticing
 
-Status: design, with a feasibility prototype. Phase 1 (the state format, §7) is implemented; nothing at runtime uses it yet.
+Status: design, with a feasibility prototype. Phase 1 (the state format, §7)
+and phase 2 (the in-daemon runtime, §8) are implemented. Nothing outside the
+daemon can ask for a handover yet: that is the preamble request, phase 3.
 
 ## Why
 
@@ -701,17 +703,23 @@ looks it up by name in its own registry, because `Choice` holds `&'static`
 lists. A known option the reader no longer has, or a value of a different kind,
 refuses the handover.
 
-**Measured** (debug build, 4 panes of 200 columns, a quarter of the lines
-styled, with wide characters):
+**Measured** (4 panes of 200 columns, a quarter of the lines styled, with
+wide characters; `handover_timing` in `handler_handover_tests.rs`):
 
-| State | Size | Capture | Encode | Decode | Restore | Pause |
-|---|---|---|---|---|---|---|
-| 50 000 history lines in total | 8.5 MiB | 126 ms | 621 ms | 783 ms | 212 ms | 1.74 s |
-| 4 × 50 000 (every pane full) | 33.8 MiB | 488 ms | 2.08 s | 2.97 s | 823 ms | 6.36 s |
+| Build | State | Size | Capture | Encode | Decode | Restore | Pause |
+|---|---|---|---|---|---|---|---|
+| debug | 50 000 history lines in total | 8.5 MiB | 126 ms | 621 ms | 783 ms | 212 ms | 1.74 s |
+| debug | 4 × 50 000 (every pane full) | 33.8 MiB | 488 ms | 2.08 s | 2.97 s | 823 ms | 6.36 s |
+| release | 50 000 history lines in total | 8.5 MiB | 53 ms | 28 ms | 85 ms | 48 ms | 214 ms |
+| release | 4 × 50 000 (every pane full) | 33.8 MiB | 233 ms | 149 ms | 341 ms | 224 ms | 946 ms |
 
-These are unoptimised numbers. serde and bincode are typically an order of
-magnitude faster in release, so the measurement should be repeated in release
-before phase 3 sets the snapshot deadline.
+The release run was `cargo test --release -p cctop-rmux-server --lib
+handover_timing -- --ignored --nocapture`, once, on a 6-core WSL2 machine
+with other work running. Encoding gains the most (twenty times), capture and
+restore about two to four times. "Pause" adds the four columns; a real
+handover pays capture and encode in the old daemon, then decode and restore
+twice, in the verify subprocess and in the new image, and only the first
+three (through the verify) count against the deadline (§8).
 
 **What changes for phases 2–4.**
 - A restored `HandlerState` cannot answer pane-level commands until its
@@ -741,6 +749,191 @@ before phase 3 sets the snapshot deadline.
   restore, and give its recorded answers.
 - An unknown schema, truncation, trailing bytes and damaged payloads are each
   refused without a panic.
+
+## 8. Phase 2, as built
+
+Step 3 of the plan, and the verify, exec and rollback of step 4: a daemon
+hands itself over when asked from inside its own process. The request on the
+socket, its authentication and the wire move are phase 3.
+
+**Where it lives.**
+- `rmux-os/src/handover.rs`: the system calls, the only `unsafe` here. That
+  is the sealed memfd, `FD_CLOEXEC`, adopting or borrowing an inherited fd by
+  number, the signal mask, and `execveat` as `syscall(SYS_execveat)`. The
+  memfd and descriptor calls are rustix's raw syscalls, so nothing depends on
+  a glibc wrapper and the static musl build has them all.
+- `rmux-server/src/listener/handover.rs`: the old image's sequence, run inside
+  the accept loop.
+- `rmux-server/src/handover/`: `api.rs` (what an embedder sees), `record.rs`
+  (the resume record and the flags), `verify.rs` and `resume.rs`.
+- `HandlerState::check_handed_over_panes` and `adopt_handed_over_panes` in
+  `pane_terminals/handover.rs`, and `RequestHandler::resume_from_handover`.
+- `PtyChild::adopt(pid)` and `PtyMaster::from_owned_fd` in rmux-pty, and
+  `LocalListener::from_std` in rmux-ipc.
+
+**The trigger.** `ServerHandle::handover(HandoverOptions)` sends the accept
+loop a command and returns only if the handover did not happen, with a
+`HandoverError` (`Refused`, `DeadlineExceeded`, `VerifyFailed`,
+`ExecFailed`). The options name the executable as an fd, by default the
+daemon's own `/proc/self/exe`. They also set the command line, by default
+`DaemonConfig::with_handover_command`, and the deadline, by default 5 s. An
+embedder's entry point calls `run_handover_verify_helper` first, then
+`HandoverResume::take_from_args`, and gives the result to
+`DaemonConfig::resuming`. The `rmux` and `rmux-daemon` hidden-daemon entry
+points do all three, without `--startup-ready-fd`, whose number means
+nothing to the next image.
+
+**The old image's sequence.**
+1. **Admission** refuses, with the reason, when the daemon has no handover
+   command line, or when any of these is active: a web share, a background
+   job (`run-shell -b`, `if-shell -b`), a `#()` status job, a pipe-pane, or an
+   SDK session lease.
+2. **In-flight commands.** It waits until no mutating request is in flight,
+   counted by the drain counter shutdown already keeps. Requests are not
+   paused at admission, because attach input, control mode and the web share
+   take that admission synchronously and would read a pause as a shutdown.
+   Waits that are cancel-safe (`wait-for`, SDK waits, `source-file`) are not
+   waited for: the exec ends their connections.
+3. **Readers park** at the top of their loop (`PaneReaderGate`). A reader
+   counts from its spawn, not its first poll, so one not yet started still
+   holds the gate open.
+4. **The state lock** is taken, and taken again until no mutating request is
+   in flight while it is held. It is then held through the exec, so nothing
+   can change the state after the snapshot. A command admitted later waits
+   for the lock: it ends with the exec, and its client gets EOF, or it runs
+   after an abort. The refusals are checked again under the lock.
+5. **Snapshot**: `to_handover`, the envelope, the resume record, and a memfd
+   sealed against write, shrink and grow. A capture refusal (an unknown
+   command kind, an option the format cannot type) is a `Refused`.
+6. **Verify**: the target is run as `/proc/<pid>/fd/<exe>`, with the command
+   line plus `--handover-verify 0` and the memfd as its stdin. It decodes,
+   restores into an empty `HandlerState`, and checks that every process has a
+   real pid and its own fd. It runs on a blocking thread and is killed at the
+   deadline.
+7. **Clients** are told: the connection shutdown watch fires with the daemon
+   marked upgrading. Attach clients get the stop sequence and `[server
+   upgrading]`, control clients `%exit server-upgrade`, and SDK connections
+   EOF. Connection tasks get shutdown's 250 ms grace and are then dropped.
+8. **Exec**: the memfd, the listener, every pane master and an fd on the old
+   executable lose `FD_CLOEXEC`. The thread's signal mask is cleared, and the
+   process `execveat`s the target with `--resume-fd <memfd>
+   --handover-rollback-fd <old exe>`. If the kernel refuses, every fd is
+   close-on-exec again, the loop gets a fresh shutdown watch, and the answer
+   is `ExecFailed`; the clients have gone by then.
+
+Nothing is `mem::forget`ed: an exec runs no destructors, and a failed one
+gave nothing away. Any failure before step 7 drops the guards. The readers go
+back to reading, the lock is released, and the daemon is as it was.
+
+**The resume record.** The memfd holds the state envelope and then a second
+one, `RMUXRSUM`, version 1. It records the listener's fd, the socket path it
+is bound to, and the old image's command line for a rollback. It is separate
+so that schema 1, and its fixture, did not change for runtime details. Like
+the state, it is read by a binary other than its writer, so it is versioned.
+
+**The new image's sequence.**
+1. `bind` reads the memfd without adopting it and checks the record's socket
+   against the configured one. It decodes the state, and serves the listener
+   through a duplicate of the inherited fd. Until the resume is complete,
+   every inherited number stays open and inheritable for a rollback.
+2. Before the accept loop, `resume_from_handover` restores the state, then
+   checks every process: its fd is open, its pid is not 0, it has a
+   transcript. Only then does it adopt anything, and from there nothing can
+   fail.
+3. Adoption gives every pane its output channel on its recorded generation.
+   It rebuilds each `PaneTerminal` from the inherited master and
+   `PtyChild::adopt(pid)`. It starts a reader for every pane that remain-on-exit
+   has not already kept dead, so an agent that died during the exec is seen
+   as an EOF and handled like any exit. It restarts the ground timer of every
+   parser left mid-sequence, and reaps once, sweeping up exits that happened
+   during the exec.
+4. The memfd, the rollback fd and the inherited listener number are closed.
+   The startup config is not run again: the state already holds what it set,
+   and what clients changed since.
+
+**Rollback.** Any failure in steps 1 and 2 `execveat`s the rollback fd. It
+uses the record's command line plus `--resume-fd`, and no rollback fd, so a
+rollback that fails in turn is final. Before the exec it writes
+`handover.failed` beside the socket (reason, the version that failed, the
+time). An embedder whose own start-up fails after a handover calls
+`HandoverResume::roll_back` itself; the `rmux` entry points do so for a
+command line they cannot parse.
+
+**Deviations from §2.**
+- The exec target is an fd the caller passes, defaulting to the daemon's own
+  executable, not the requesting peer's `/proc/<pid>/exe`. Peer
+  authentication is phase 3.
+- Requests are not stopped at admission (step 2 above says why); the state
+  lock does that job from the snapshot on.
+- The verify subprocess reads the memfd as its stdin, not by its number.
+- The deadline covers in-flight commands, parking, the snapshot and the
+  verify. It does not cover the 250 ms client grace or the exec.
+- Status jobs refuse a handover too, and so does any SDK session lease, not
+  only a detached one: a lease is held by its client's connection, which the
+  exec closes.
+
+**Measured end to end** (`tests/live_handover.rs`, debug build, five panes
+with two counters writing): from the request to the new image's `ready` takes
+about 50 ms without clients, and about 300 ms with an attached and a control
+client, most of it the 250 ms client grace.
+
+**Tests.**
+- `tests/live_handover.rs` uses the test binary as the daemon (no libtest
+  harness), hands over into a hard link of itself, and drives it through its
+  socket.
+  - **A handover** with five panes: two counters writing, one cut in the
+    middle of `ESC [ 1 ; 3`, one on the alternate screen, and one with an OSC
+    7501 record. The pid is the same, and `/proc/<pid>/exe` is the new link.
+    Every pane process is still a live child, and both counters are
+    contiguous from 0 with nothing lost or repeated. Panes, windows, sessions,
+    captures with styles and pane formats are equal before and after, and the
+    cut sequence finishes bold. The attach and control clients were told
+    `[server upgrading]` and `%exit server-upgrade`, and new windows and
+    options work after.
+  - **A rollback**: the old binary's link is deleted, then the new one is
+    given a command line for another socket, so it verifies but cannot
+    resume. The daemon is back on `old-rmux (deleted)` with the same pid,
+    children, panes and contiguous counter, and `handover.failed` names the
+    reason.
+  - **Refusals**: a pipe-pane, then a `run-shell -b` job, each refused by
+    name, with the daemon unchanged.
+  - **A deadline**: a 1 ms handover aborts with `DeadlineExceeded`, the
+    counter carries on contiguous, and a handover with time to spare then
+    succeeds.
+- Making the old image skip parking the readers fails the first test on the
+  counters.
+- Unit tests cover the reader gate, the resume record, the resume flags, the
+  verify step on a real state and on each way a memfd can be wrong,
+  `PtyChild::adopt`, and the memfd and fd calls.
+
+**What phase 3 needs.**
+- **The preamble** runs on a connection task, but a handover must run in the
+  accept loop, which owns the listener and the connection tasks. It sends
+  the loop a `HandoverCommand`, as `ServerHandle::handover` does, with the
+  peer's `/proc/<pid>/exe` fd as the executable and the request's
+  `argv_tail` as the command line. For `{"phase":"verified"}` it needs a
+  notification between steps 6 and 7, which the command does not carry yet.
+  The answer must be written before step 7 tells the clients, because the
+  requester's own connection is one of them.
+- **A wire move** needs the socket-path check in `handover/resume.rs` lifted
+  for a `listen` path. The record already carries the inherited path, so the
+  new image binds the new one and keeps the inherited listener as the grace
+  listener (§4).
+- **Two versions to negotiate**: the state schema (`READABLE_SCHEMAS`) and
+  the resume record's version (`RESUME_RECORD_VERSION`). The new binary must
+  read what the old one writes, and a rollback has the old binary read its
+  own. Keep a record fixture once one is released.
+- **The rollback command line** is the old image's own, as it ran (resume
+  flags removed). So the old binary must accept `--resume-fd`, which every
+  daemon from this one on does.
+- **Embedders** (cctop's `mux daemon`) need the three calls above. Without
+  `with_handover_command`, every handover is refused.
+- **Reconnect**: the attach client already prints the reason and exits 0.
+  cctop's tabs re-run `cctop mux attach` on `[server upgrading]`, and SDK
+  callers retry on EOF.
+- **Not covered by phase 2's tests**: an agent dying during the exec,
+  handover across two builds of different versions, and a busy-machine soak
+  (§6, step 7).
 
 ## Risks
 

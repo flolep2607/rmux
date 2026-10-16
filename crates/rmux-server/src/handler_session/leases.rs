@@ -83,6 +83,11 @@ pub(crate) struct SessionLeaseStore {
 }
 
 impl SessionLeaseStore {
+    /// How many sessions an SDK client holds a lease on.
+    pub(crate) fn active_count(&self) -> usize {
+        self.ownerships.len()
+    }
+
     fn create_lease(
         &mut self,
         wire_session_name: SessionName,

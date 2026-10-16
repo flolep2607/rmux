@@ -87,6 +87,8 @@ pub struct DaemonConfig {
     #[cfg(windows)]
     startup_ready_event: Option<OsString>,
     tmux_shim: bool,
+    handover_command: Option<Vec<std::ffi::OsString>>,
+    resume: Option<crate::HandoverResume>,
 }
 
 impl DaemonConfig {
@@ -105,6 +107,8 @@ impl DaemonConfig {
             #[cfg(windows)]
             startup_ready_event: None,
             tmux_shim: true,
+            handover_command: None,
+            resume: None,
         }
     }
 
@@ -215,6 +219,36 @@ impl DaemonConfig {
     #[must_use]
     pub const fn without_tmux_shim(mut self) -> Self {
         self.tmux_shim = false;
+        self
+    }
+
+    /// The command line this daemon is re-executed with when it hands over to
+    /// a new binary (docs/design/live-handover.md), program name first.
+    ///
+    /// It is the embedder's own way of starting a daemon on this socket, the
+    /// one that leads to [`ServerDaemon::bind`] with this configuration. A
+    /// handover appends `--resume-fd N` (and, going forward, the fd to roll
+    /// back through) to it, and runs it with `--handover-verify N` first; the
+    /// entry point must call [`run_handover_verify_helper`] and
+    /// [`HandoverResume::take_from_args`] before its own parsing. Without a
+    /// command line, a handover is refused.
+    ///
+    /// [`run_handover_verify_helper`]: crate::run_handover_verify_helper
+    /// [`HandoverResume::take_from_args`]: crate::HandoverResume::take_from_args
+    #[must_use]
+    pub fn with_handover_command(mut self, argv: Vec<std::ffi::OsString>) -> Self {
+        self.handover_command = Some(argv);
+        self
+    }
+
+    /// Resumes the daemon a handover exec'd into this process, instead of
+    /// binding the socket: the listener, the panes and their processes are
+    /// all inherited, and restored before a connection is accepted. If they
+    /// cannot be, [`ServerDaemon::bind`] gives the daemon back to the old
+    /// binary and returns only if even that fails.
+    #[must_use]
+    pub fn resuming(mut self, resume: crate::HandoverResume) -> Self {
+        self.resume = Some(resume);
         self
     }
 
@@ -331,13 +365,21 @@ impl ServerDaemon {
     }
 
     /// Binds the local IPC endpoint, starts accepting requests, and returns a handle.
-    pub async fn bind(self) -> io::Result<ServerHandle> {
+    pub async fn bind(mut self) -> io::Result<ServerHandle> {
         #[cfg(unix)]
         {
             if !self.config.tmux_shim {
                 crate::tmux_shim::disable();
             }
-            let bound_listener = bind_unix_listener_at(self.config.socket_path())?;
+            let (bound_listener, resume) = match self.config.resume.take() {
+                Some(resume) => {
+                    match crate::handover::resume::prepare(&resume, self.config.socket_path()) {
+                        Ok((bound_listener, state)) => (bound_listener, Some((resume, state))),
+                        Err(reason) => return Err(resume.roll_back(&reason)),
+                    }
+                }
+                None => (bind_unix_listener_at(self.config.socket_path())?, None),
+            };
             let socket_access = UnixSocketAccessController::new(
                 self.config.socket_path(),
                 bound_listener.identity,
@@ -360,6 +402,13 @@ impl ServerDaemon {
             .with_socket_identity(bound_listener.identity)
             .with_socket_access(socket_access)
             .with_server_signals(signal_watcher);
+            let (handover_requests, handover_receiver) = tokio::sync::mpsc::channel(1);
+            let serve_options = serve_options
+                .with_handover(self.config.handover_command.clone(), handover_receiver);
+            let serve_options = match resume {
+                Some((resume, state)) => serve_options.resuming(resume, state),
+                None => serve_options,
+            };
 
             let task = tokio::spawn(listener::serve(
                 bound_listener.listener,
@@ -375,6 +424,7 @@ impl ServerDaemon {
             Ok(ServerHandle {
                 socket_path,
                 shutdown_handle,
+                handover_requests,
                 task: Some(task),
             })
         }
@@ -506,10 +556,32 @@ fn windows_protocol_probe(endpoint: &LocalEndpoint) -> io::Result<bool> {
 pub struct ServerHandle {
     socket_path: PathBuf,
     shutdown_handle: ShutdownHandle,
+    #[cfg(unix)]
+    handover_requests: tokio::sync::mpsc::Sender<crate::listener::HandoverCommand>,
     task: Option<JoinHandle<io::Result<()>>>,
 }
 
 impl ServerHandle {
+    /// Hands this daemon over to a new binary in place
+    /// (docs/design/live-handover.md): same pid, same panes, same processes,
+    /// same socket.
+    ///
+    /// On success the process is replaced, so this never returns; it returns
+    /// only with why the handover did not happen, and then the daemon is
+    /// still serving as it was. This is the in-process trigger; a request on
+    /// the socket, for a client to ask, is a later step.
+    #[cfg(unix)]
+    pub async fn handover(&self, options: crate::HandoverOptions) -> crate::HandoverError {
+        let (reply, answer) = oneshot::channel();
+        let command = crate::listener::HandoverCommand { options, reply };
+        if self.handover_requests.send(command).await.is_err() {
+            return crate::HandoverError::refused("the daemon is no longer running");
+        }
+        answer.await.unwrap_or_else(|_| {
+            crate::HandoverError::refused("the daemon stopped before answering")
+        })
+    }
+
     /// Returns the bound local IPC endpoint path for the running daemon.
     #[must_use]
     pub fn socket_path(&self) -> &Path {

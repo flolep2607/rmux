@@ -185,6 +185,16 @@ impl PaneTranscript {
         self.pending_palette_queries.consume(index, now)
     }
 
+    /// Starts the ground timer again for a parser restored mid-sequence.
+    ///
+    /// The timer is an `Instant`, which a handover cannot carry, so a pane
+    /// restored halfway through an escape sequence would otherwise wait in
+    /// that state until its program writes again (§7). It starts afresh:
+    /// the parser gets its full timeout from the resume, never less.
+    pub(crate) fn resume_ground_timer(&mut self) -> Option<PaneGroundTimer> {
+        self.refresh_ground_timer(Instant::now())
+    }
+
     fn refresh_ground_timer(&mut self, now: Instant) -> Option<PaneGroundTimer> {
         if self.terminal.ground_timer_active() {
             if self.ground_timer_started_at.is_none() {
@@ -774,9 +784,6 @@ fn visible_revision_reuse_map(previous: &[u64], next: &[u64]) -> Option<Vec<Opti
 }
 
 // Handover conversion (docs/design/live-handover.md).
-// Phase 3 of the handover (the resume runtime) is the caller; until then
-// only the tests are.
-#[cfg_attr(not(test), allow(dead_code))]
 impl PaneTranscript {
     pub(crate) fn to_handover(&self) -> crate::handover::TranscriptV1 {
         let Self {
