@@ -44,6 +44,8 @@ mod daemon_support;
 mod dispatch_support;
 #[path = "handler_exited_outputs.rs"]
 mod exited_output_support;
+#[path = "handler_handover.rs"]
+mod handover_support;
 #[path = "handler_hook_identity.rs"]
 mod hook_identity_support;
 #[path = "handler/lifecycle_dispatch_queue.rs"]
@@ -377,6 +379,7 @@ pub(crate) struct RequestHandler {
     #[cfg(unix)]
     unix_socket_access: Arc<StdMutex<Option<UnixSocketAccessController>>>,
     shutdown_requested: Arc<AtomicBool>,
+    server_upgrading: Arc<AtomicBool>,
     shutdown_reason: Arc<StdMutex<Option<PendingShutdownReason>>>,
     shutdown_retry_state: Arc<StdMutex<shutdown_support::ShutdownRetryState>>,
     active_detached_connections: Arc<StdMutex<HashSet<u64>>>,
@@ -480,6 +483,7 @@ impl Clone for RequestHandler {
             #[cfg(unix)]
             unix_socket_access: self.unix_socket_access.clone(),
             shutdown_requested: self.shutdown_requested.clone(),
+            server_upgrading: self.server_upgrading.clone(),
             shutdown_reason: self.shutdown_reason.clone(),
             shutdown_retry_state: self.shutdown_retry_state.clone(),
             active_detached_connections: self.active_detached_connections.clone(),
@@ -572,6 +576,7 @@ pub(crate) struct WeakRequestHandler {
     #[cfg(unix)]
     unix_socket_access: Weak<StdMutex<Option<UnixSocketAccessController>>>,
     shutdown_requested: Weak<AtomicBool>,
+    server_upgrading: Weak<AtomicBool>,
     shutdown_reason: Weak<StdMutex<Option<PendingShutdownReason>>>,
     shutdown_retry_state: Weak<StdMutex<shutdown_support::ShutdownRetryState>>,
     active_detached_connections: Weak<StdMutex<HashSet<u64>>>,
@@ -634,6 +639,7 @@ impl WeakRequestHandler {
             #[cfg(unix)]
             unix_socket_access: self.unix_socket_access.upgrade()?,
             shutdown_requested: self.shutdown_requested.upgrade()?,
+            server_upgrading: self.server_upgrading.upgrade()?,
             shutdown_reason: self.shutdown_reason.upgrade()?,
             shutdown_retry_state: self.shutdown_retry_state.upgrade()?,
             active_detached_connections: self.active_detached_connections.upgrade()?,
@@ -946,6 +952,7 @@ impl RequestHandler {
             #[cfg(unix)]
             unix_socket_access: Arc::new(StdMutex::new(None)),
             shutdown_requested: Arc::new(AtomicBool::new(false)),
+            server_upgrading: Arc::new(AtomicBool::new(false)),
             shutdown_reason: Arc::new(StdMutex::new(None)),
             shutdown_retry_state: Arc::new(StdMutex::new(
                 shutdown_support::ShutdownRetryState::new(),
@@ -1050,6 +1057,7 @@ impl RequestHandler {
             #[cfg(unix)]
             unix_socket_access: Arc::downgrade(&self.unix_socket_access),
             shutdown_requested: Arc::downgrade(&self.shutdown_requested),
+            server_upgrading: Arc::downgrade(&self.server_upgrading),
             shutdown_reason: Arc::downgrade(&self.shutdown_reason),
             shutdown_retry_state: Arc::downgrade(&self.shutdown_retry_state),
             active_detached_connections: Arc::downgrade(&self.active_detached_connections),

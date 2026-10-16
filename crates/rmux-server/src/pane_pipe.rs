@@ -56,6 +56,11 @@ impl std::fmt::Debug for PanePipeStore {
 }
 
 impl PanePipeStore {
+    /// How many panes are piped, for a handover's admission.
+    pub(crate) fn active_count(&self) -> usize {
+        self.sessions.values().map(HashMap::len).sum()
+    }
+
     pub(crate) fn contains(&self, session_name: &SessionName, pane_id: PaneId) -> bool {
         self.sessions
             .get(session_name)

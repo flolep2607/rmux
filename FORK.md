@@ -38,6 +38,13 @@ an rmux daemon. The plan and its reasons are in flolep2607/cctop#197.
   all empty when there is no record; formats are strings in the existing
   protocol, so no wire message changed. Reports are never forwarded to an
   attached terminal, where every pane's records would collide.
+- **Live handover** (`docs/design/live-handover.md`). A running daemon can
+  re-execute itself into a new binary in place. It keeps its pid, its pane
+  processes as children, their ptys, every screen and its socket, and rolls
+  back into the old binary if the new one cannot resume. The state format
+  is phase 1, and phase 2 is the runtime, triggered by
+  `ServerHandle::handover` from inside the daemon's process. A request on the
+  socket, for cctop to ask, comes next.
 - **Upstream pull requests merged early.** Helvesec/rmux#227, the Kitty
   keyboard protocol's disambiguate flag, which lets a pane tell Shift+Enter
   from Enter (Claude Code's newline). Merged as upstream's own commits, so

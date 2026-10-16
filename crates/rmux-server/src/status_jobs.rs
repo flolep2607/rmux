@@ -203,8 +203,8 @@ impl StatusJobRuntime {
         self.inner.lock_state().closing
     }
 
-    #[cfg(test)]
-    fn active_job_count(&self) -> usize {
+    /// Jobs still running, for a handover's admission.
+    pub(crate) fn active_job_count(&self) -> usize {
         self.inner
             .lock_state()
             .active

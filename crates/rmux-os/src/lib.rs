@@ -8,6 +8,8 @@
 #[cfg(windows)]
 pub mod command;
 pub mod daemon;
+#[cfg(target_os = "linux")]
+pub mod handover;
 pub mod host;
 pub mod identity;
 pub mod memory;

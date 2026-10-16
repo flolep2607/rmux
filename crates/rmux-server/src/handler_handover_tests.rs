@@ -108,7 +108,8 @@ fn pane_output(scrollback_lines: u32) -> Vec<(&'static str, u32, u32, Vec<u8>)> 
 /// The queries a client, a script or cctop could make, whose answers must
 /// survive a handover. Pane-level commands (`list-panes`, `capture-pane`,
 /// pane formats) are not among them: they look the pane's process up, and
-/// the processes come back in the resume runtime (phase 3), not here. Panes
+/// the processes come back in the resume runtime (`resume_from_handover`),
+/// not here; `tests/live_handover.rs` compares those across a real exec. Panes
 /// are compared through their transcripts instead ([`observe_panes`]).
 const QUERIES: &[&str] = &[
     "list-sessions -F '#{session_name} #{session_id} #{session_windows} #{session_group} #{session_grouped} #{session_created} #{session_last_attached} #{session_activity}'",
@@ -273,7 +274,7 @@ fn assert_same_answers(
     }
 }
 
-/// The restored daemon has no pane processes yet (phase 3 adopts them), and
+/// The restored daemon has no pane processes yet (the resume adopts them), and
 /// fresh recency tokens; everything else must be what was captured.
 fn without_runtime(mut state: HandoverStateV1) -> HandoverStateV1 {
     state.header.pane_fds.clear();
@@ -425,6 +426,56 @@ async fn a_restored_daemon_keeps_working() {
     windows.sort_unstable();
     windows.dedup();
     assert!(windows.len() >= 4, "{windows:?}");
+}
+
+/// What the verify subprocess checks, run in-process: a real daemon's state
+/// passes, and each way a memfd can be wrong is refused with a reason.
+#[tokio::test]
+async fn the_verify_step_passes_a_real_state_and_names_what_is_wrong_with_a_bad_one() {
+    use crate::handover::record::{append_record, ResumeRecordV1};
+    use crate::handover::verify::verify_bytes;
+
+    let original = realistic_daemon(200).await;
+    let state = original.state.lock().await.to_handover().expect("captures");
+    let record = ResumeRecordV1 {
+        listener_fd: 9_999,
+        socket_path: b"/tmp/rmux-verify/default".to_vec(),
+        rollback_argv: vec![b"rmux".to_vec()],
+    };
+    let blob = |state: &HandoverStateV1, record: &ResumeRecordV1| {
+        let mut bytes = encode(state);
+        append_record(&mut bytes, record);
+        bytes
+    };
+
+    let summary = verify_bytes(&blob(&state, &record)).expect("a real state verifies");
+    assert!(summary.contains("6 processes"), "{summary}");
+
+    let fd = state.header.pane_fds[0].1;
+    let clash = ResumeRecordV1 {
+        listener_fd: fd,
+        ..record.clone()
+    };
+    let error = verify_bytes(&blob(&state, &clash)).expect_err("two owners of one fd");
+    assert!(error.contains("not its own"), "{error}");
+
+    let no_rollback = ResumeRecordV1 {
+        rollback_argv: Vec::new(),
+        ..record.clone()
+    };
+    assert!(verify_bytes(&blob(&state, &no_rollback)).is_err());
+
+    let mut orphan = state.clone();
+    orphan.header.pane_fds.clear();
+    let error = verify_bytes(&blob(&orphan, &record)).expect_err("a process without an fd");
+    assert!(error.contains("no fd"), "{error}");
+
+    let whole = blob(&state, &record);
+    assert!(
+        verify_bytes(&whole[..whole.len() / 2]).is_err(),
+        "truncated"
+    );
+    assert!(verify_bytes(&encode(&state)).is_err(), "no resume record");
 }
 
 #[tokio::test]

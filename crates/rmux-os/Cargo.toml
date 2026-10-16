@@ -19,5 +19,5 @@ rmux-types = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.185"
-rustix = { version = "1.1.4", features = ["process", "termios"] }
+rustix = { version = "1.1.4", features = ["fs", "process", "termios"] }
 

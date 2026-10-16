@@ -469,10 +469,14 @@ async fn forward_control_inner(
             return Ok(());
         }
         if shutdown_draining && current_command.is_none() {
-            output_queue.enqueue_line(
-                format_exit_line(Some("server shutting down")).into_bytes(),
-                false,
-            );
+            // A handover stops control clients like a shutdown does, with the
+            // reason a client can tell apart: the server is coming back.
+            let reason = if handler.server_upgrading() {
+                "server-upgrade"
+            } else {
+                "server shutting down"
+            };
+            output_queue.enqueue_line(format_exit_line(Some(reason)).into_bytes(), false);
             flush_output_queue(&mut output_queue, &mut write_half, flags, &mut paused_panes)
                 .await?;
             return Ok(());

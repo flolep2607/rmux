@@ -165,8 +165,10 @@ impl SpawnedPty {
 /// A handle for signaling and reaping a PTY-backed child process.
 #[derive(Debug)]
 pub struct PtyChild {
+    /// `None` for a child adopted by pid (see [`PtyChild::adopt`]): there is
+    /// no `std::process::Child` to rebuild, so it is reaped by raw `waitpid`.
     #[cfg(unix)]
-    child: Child,
+    child: Option<Child>,
     #[cfg(windows)]
     child: backend::WindowsChild,
     pid: ProcessId,
@@ -183,11 +185,35 @@ impl PtyChild {
         self.pid
     }
 
+    /// Takes over a child of this process by its pid alone.
+    ///
+    /// A live handover re-executes the daemon in place, so every pane
+    /// process is still this process's child, but the `std::process::Child`
+    /// that spawned it went with the old image and cannot be rebuilt from a
+    /// pid. An adopted child is reaped with `waitpid` on its pid, which is
+    /// safe from reuse because an unreaped child's pid stays reserved.
+    #[cfg(unix)]
+    pub fn adopt(pid: u32) -> Result<Self> {
+        Ok(Self {
+            child: None,
+            pid: ProcessId::new(pid)?,
+        })
+    }
+
     /// Waits for the child process to exit and reaps it.
     pub fn wait(&mut self) -> Result<ExitStatus> {
         #[cfg(unix)]
         {
-            Ok(self.child.wait()?)
+            match &mut self.child {
+                Some(child) => Ok(child.wait()?),
+                None => {
+                    let status = wait_adopted(
+                        self.pid.as_rustix_pid()?,
+                        rustix::process::WaitOptions::empty(),
+                    )?;
+                    Ok(status.expect("a blocking waitpid returns a status"))
+                }
+            }
         }
 
         #[cfg(not(unix))]
@@ -208,7 +234,13 @@ impl PtyChild {
     pub fn try_wait(&mut self) -> Result<Option<ExitStatus>> {
         #[cfg(unix)]
         {
-            Ok(self.child.try_wait()?)
+            match &mut self.child {
+                Some(child) => Ok(child.try_wait()?),
+                None => Ok(wait_adopted(
+                    self.pid.as_rustix_pid()?,
+                    rustix::process::WaitOptions::NOHANG,
+                )?),
+            }
         }
 
         #[cfg(not(unix))]
@@ -412,7 +444,10 @@ fn spawn_child(command: ChildCommand) -> Result<SpawnedPty> {
 
     Ok(SpawnedPty {
         master,
-        child: PtyChild { child, pid },
+        child: PtyChild {
+            child: Some(child),
+            pid,
+        },
     })
 }
 
@@ -436,5 +471,64 @@ fn spawn_child(_command: ChildCommand) -> Result<SpawnedPty> {
     #[cfg(not(windows))]
     {
         Err(PtyError::Unsupported(unsupported_op::SPAWN_PTY_CHILD))
+    }
+}
+
+/// `waitpid` on an adopted child, with its status as std reports one.
+#[cfg(unix)]
+fn wait_adopted(
+    pid: rustix::process::Pid,
+    options: rustix::process::WaitOptions,
+) -> std::io::Result<Option<ExitStatus>> {
+    use std::os::unix::process::ExitStatusExt;
+
+    loop {
+        match rustix::process::waitpid(Some(pid), options) {
+            Ok(Some((_, status))) => return Ok(Some(ExitStatus::from_raw(status.as_raw()))),
+            Ok(None) => return Ok(None),
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod adopt_tests {
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::Command;
+
+    use super::PtyChild;
+
+    #[test]
+    fn an_adopted_child_is_reaped_by_pid_with_its_status() {
+        let child = Command::new("sh")
+            .args(["-c", "read line; exit 7"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn");
+        let pid = child.id();
+        let stdin = {
+            let mut child = child;
+            let stdin = child.stdin.take().expect("stdin");
+            // What a handover's exec does to the `Child`: it is gone, and
+            // only the pid is left.
+            std::mem::forget(child);
+            stdin
+        };
+        let mut adopted = PtyChild::adopt(pid).expect("adopt");
+        assert_eq!(adopted.pid().as_u32(), pid);
+        assert!(
+            adopted.try_wait().expect("try_wait").is_none(),
+            "still running"
+        );
+        drop(stdin);
+        let status = adopted.wait().expect("wait");
+        assert_eq!(status.code(), Some(7));
+        assert!(status.signal().is_none());
+    }
+
+    #[test]
+    fn pid_zero_cannot_be_adopted() {
+        assert!(PtyChild::adopt(0).is_err());
     }
 }

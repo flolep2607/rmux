@@ -3,10 +3,6 @@
 //! Both directions destructure `HandlerState` whole, so a field added to it
 //! does not compile until this file says what a handover does with it.
 
-// Phase 3 of the handover (the resume runtime) is the caller; until then
-// only the tests are.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::collections::{HashMap, HashSet};
 
 use rmux_core::handover::{restore_session_name, HandoverError, PaneTargetV1};
@@ -577,6 +573,199 @@ impl HandlerState {
         *next_window_link_group_id = next_group_id;
         *next_window_link_occurrence_id = next_occurrence_id;
         Ok(processes)
+    }
+}
+
+/// What resuming did, for the log and the tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct AdoptedPanes {
+    pub(crate) processes: usize,
+    pub(crate) readers: usize,
+    pub(crate) ground_timers: usize,
+    pub(crate) not_running: usize,
+}
+
+impl HandlerState {
+    /// Checks, without taking anything, that every process the restore named
+    /// can be adopted: its fd is open, its pid is real, and it has a
+    /// transcript. A resume that fails here rolls back with every inherited
+    /// fd still open and inheritable.
+    pub(crate) fn check_handed_over_panes(
+        &self,
+        processes: &[HandedOverPaneProcess],
+    ) -> Result<(), String> {
+        for process in processes {
+            let pane = process.pane_id.as_u32();
+            if process.process.pid == 0 {
+                return Err(format!("pane %{pane} has pid 0"));
+            }
+            rmux_os::handover::borrow_inherited_fd(process.master_fd)
+                .map_err(|error| format!("pane %{pane}: {error}"))?;
+            if !self
+                .transcripts
+                .get(&process.session_name)
+                .is_some_and(|panes| panes.contains_key(&process.pane_id))
+            {
+                return Err(format!("pane %{pane} has a process but no transcript"));
+            }
+        }
+        if self.pane_reader_runtime.is_none() {
+            return Err("no runtime to run pane readers on".to_owned());
+        }
+        Ok(())
+    }
+
+    /// The second half of a resume: takes over every pane process with the
+    /// fd it inherited, gives every pane its output channel back, starts a
+    /// reader for every pane that was still reading, and restarts the ground
+    /// timer of every parser left mid-sequence (§7).
+    ///
+    /// Call [`check_handed_over_panes`](Self::check_handed_over_panes) first;
+    /// past that, nothing here can fail, because a failure halfway would
+    /// leave fds adopted that a rollback needs inheritable.
+    pub(crate) fn adopt_handed_over_panes(
+        &mut self,
+        processes: Vec<HandedOverPaneProcess>,
+        pane_alert_callback: &crate::pane_io::PaneAlertCallback,
+        pane_exit_callback: &crate::pane_io::PaneExitCallback,
+    ) -> AdoptedPanes {
+        let mut adopted = AdoptedPanes::default();
+        let runtime = self
+            .pane_reader_runtime
+            .clone()
+            .expect("checked by check_handed_over_panes");
+
+        // Every pane gets its output channel, on its recorded generation, so
+        // a client that subscribes sees the generation the pane had.
+        let panes: Vec<(SessionName, PaneId)> = self
+            .transcripts
+            .iter()
+            .flat_map(|(session, panes)| panes.keys().map(move |pane| (session.clone(), *pane)))
+            .collect();
+        for (session, pane_id) in &panes {
+            let generation = self.pane_output_generation(session, *pane_id);
+            let pane_output = crate::pane_io::pane_output_channel();
+            pane_output.set_generation(generation);
+            self.pane_outputs
+                .entry(session.clone())
+                .or_default()
+                .insert(*pane_id, pane_output);
+        }
+
+        for process in processes {
+            let HandedOverPaneProcess {
+                session_name,
+                pane_id,
+                master_fd,
+                process,
+            } = process;
+            let fd = rmux_os::handover::adopt_inherited_fd(master_fd)
+                .expect("checked by check_handed_over_panes");
+            let master = rmux_pty::PtyMaster::from_owned_fd(fd);
+            // O_NONBLOCK is on the open file description, which the exec
+            // kept; setting it again only matters if something cleared it.
+            if let Err(error) = master.io().set_nonblocking() {
+                tracing::warn!(pane = pane_id.as_u32(), "adopted pty master: {error}");
+            }
+            let child = rmux_pty::PtyChild::adopt(process.pid).expect("checked: pid is not 0");
+            let mut terminal =
+                crate::pane_terminal_process::PaneTerminal::from_handover(master, child, process);
+            // A pane already kept dead by remain-on-exit had its exit
+            // handled; its reader ended long ago and must not report it
+            // again. Every other pane reads: one whose process died during
+            // the exec reads EOF and is handled as any exit is.
+            let dead = self
+                .dead_panes
+                .get(&session_name)
+                .is_some_and(|panes| panes.contains_key(&pane_id));
+            let reader = if dead {
+                None
+            } else {
+                terminal.clone_master_for_output_reader().ok()
+            };
+            self.terminals
+                .insert_handed_over_pane(session_name.clone(), pane_id, terminal);
+            adopted.processes += 1;
+            let Some(reader) = reader else {
+                continue;
+            };
+            let transcript = self
+                .transcripts
+                .get(&session_name)
+                .and_then(|panes| panes.get(&pane_id))
+                .cloned()
+                .expect("checked by check_handed_over_panes");
+            let pane_output = self
+                .pane_outputs
+                .get(&session_name)
+                .and_then(|panes| panes.get(&pane_id))
+                .cloned()
+                .expect("every pane got a channel above");
+            let generation = self.pane_output_generation(&session_name, pane_id);
+            let task = crate::pane_io::spawn_pane_output_reader(
+                session_name.clone(),
+                pane_id,
+                reader,
+                transcript,
+                pane_output,
+                Some(generation),
+                Some(pane_alert_callback.clone()),
+                Some(pane_exit_callback.clone()),
+                runtime.clone(),
+            );
+            self.pane_output_readers
+                .entry(session_name)
+                .or_default()
+                .insert(pane_id, task);
+            adopted.readers += 1;
+        }
+
+        for (session, pane_id) in &panes {
+            let (Some(transcript), Some(pane_output)) = (
+                self.transcripts
+                    .get(session)
+                    .and_then(|panes| panes.get(pane_id)),
+                self.pane_outputs
+                    .get(session)
+                    .and_then(|panes| panes.get(pane_id)),
+            ) else {
+                continue;
+            };
+            if crate::pane_io::resume_pane_ground_timer(session, *pane_id, transcript, pane_output)
+            {
+                adopted.ground_timers += 1;
+            }
+        }
+
+        adopted.not_running = self.terminals.reap_handed_over_panes();
+        adopted
+    }
+}
+
+impl HandlerState {
+    /// What in the state itself refuses a handover.
+    pub(crate) fn handover_refusal(&self) -> Option<String> {
+        let pipes = self.pipes.active_count();
+        if pipes > 0 {
+            return Some(format!(
+                "{pipes} pane(s) piped with pipe-pane: the pipe's process cannot be handed over"
+            ));
+        }
+        let jobs = self.status_jobs.active_job_count();
+        if jobs > 0 {
+            return Some(format!(
+                "{jobs} status job(s) running: a #() job's process cannot be handed over"
+            ));
+        }
+        None
+    }
+
+    pub(crate) fn pane_reader_gate(
+        &self,
+    ) -> Option<std::sync::Arc<crate::pane_reader_runtime::PaneReaderGate>> {
+        self.pane_reader_runtime
+            .as_ref()
+            .map(|runtime| std::sync::Arc::clone(runtime.gate()))
     }
 }
 

@@ -25,6 +25,12 @@ fn main() {
         std::process::exit(exit_code);
     }
 
+    // A live handover runs the new binary on the old daemon's state before
+    // it commits (`--handover-verify`); that run must serve nothing.
+    if let Some(exit_code) = rmux_server::run_handover_verify_helper(env::args_os().skip(2)) {
+        std::process::exit(exit_code);
+    }
+
     match try_main(env::args_os().skip(1)) {
         Ok(()) => {}
         Err(error) => {
@@ -38,9 +44,41 @@ fn try_main<I>(args: I) -> io::Result<()>
 where
     I: IntoIterator<Item = OsString>,
 {
-    let args = parse_daemon_args(args.into_iter())
+    let mut args: Vec<OsString> = args.into_iter().collect();
+    let resume = rmux_server::HandoverResume::take_from_args(&mut args)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    run_hidden_daemon(args)
+    let parsed = match parse_daemon_args(args.clone().into_iter()) {
+        Ok(parsed) => parsed,
+        // A daemon handed over to this binary cannot be dropped for a
+        // command line it does not understand: give it back.
+        Err(error) => {
+            return Err(match resume {
+                Some(resume) => resume.roll_back(&error),
+                None => io::Error::new(io::ErrorKind::InvalidInput, error),
+            })
+        }
+    };
+    let handover_command = env::args_os()
+        .take(1)
+        .chain(without_startup_ready_fd(args))
+        .collect();
+    run_hidden_daemon(parsed, handover_command, resume)
+}
+
+/// The daemon's arguments minus `--startup-ready-fd N`: that fd was the
+/// starting client's, signalled once, and in a resumed image its number may
+/// name anything.
+fn without_startup_ready_fd(args: Vec<OsString>) -> Vec<OsString> {
+    let mut kept = Vec::with_capacity(args.len());
+    let mut args = args.into_iter();
+    while let Some(argument) = args.next() {
+        if argument == "--startup-ready-fd" {
+            let _ = args.next();
+            continue;
+        }
+        kept.push(argument);
+    }
+    kept
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,13 +250,23 @@ where
     Ok(())
 }
 
-fn run_hidden_daemon(args: DaemonArgs) -> io::Result<()> {
+fn run_hidden_daemon(
+    args: DaemonArgs,
+    handover_command: Vec<OsString>,
+    resume: Option<rmux_server::HandoverResume>,
+) -> io::Result<()> {
     reject_unsupported_web_args(&args)?;
 
     let mut config = match args.socket_path {
         Some(socket_path) => DaemonConfig::new(socket_path),
         None => DaemonConfig::with_default_socket_path()?,
     };
+    // The command line this daemon was started with is the one a handover
+    // re-executes it with, resume flags aside.
+    config = config.with_handover_command(handover_command);
+    if let Some(resume) = resume {
+        config = config.resuming(resume);
+    }
     config = match args.config_selection {
         ConfigFileSelection::Disabled => config,
         ConfigFileSelection::Default => {

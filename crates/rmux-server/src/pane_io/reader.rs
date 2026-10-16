@@ -25,7 +25,7 @@ use super::{
 };
 use crate::clipboard_protocol::decode_pane_clipboard_write_payload;
 #[cfg(unix)]
-use crate::pane_reader_runtime::PaneReaderRuntime;
+use crate::pane_reader_runtime::{PaneReaderRuntime, PaneReaderTicket};
 use crate::pane_transcript::{PaneGroundTimer, SharedPaneTranscript};
 
 #[cfg(unix)]
@@ -275,8 +275,10 @@ fn spawn_async_pane_output_reader(spawn: PaneOutputReaderSpawn) -> PaneOutputRea
         pane_exit_callback,
         runtime,
     } = spawn;
+    let ticket = runtime.gate().ticket();
     let task = async move {
         if let Err(error) = read_pane_output(
+            ticket,
             pane_master,
             session_name.clone(),
             pane_id,
@@ -383,6 +385,7 @@ pub(crate) fn spawn_pane_output_reader(
 #[allow(clippy::too_many_arguments)]
 #[cfg(unix)]
 async fn read_pane_output(
+    mut ticket: PaneReaderTicket,
     pane_master: PtyMaster,
     session_name: rmux_proto::SessionName,
     pane_id: PaneId,
@@ -400,7 +403,18 @@ async fn read_pane_output(
     let mut activity_alert_throttle = PaneActivityAlertThrottle::default();
 
     loop {
-        let bytes_read = read_from_pane(&pane_reader, &mut readiness, &mut buffer).await?;
+        // The only place a reader may stop for a handover: nothing is held
+        // here that the pty does not still hold (`PaneReaderGate`).
+        // `read_from_pane` returns bytes in the same poll that reads them, so
+        // losing the race to the gate never drops a read.
+        let bytes_read = tokio::select! {
+            biased;
+            () = ticket.park_requested() => {
+                ticket.stay_parked().await;
+                continue;
+            }
+            result = read_from_pane(&pane_reader, &mut readiness, &mut buffer) => result?,
+        };
         if bytes_read == 0 {
             if readiness.startup_eio_exhausted() {
                 warn!(
@@ -757,6 +771,30 @@ struct PaneGroundTimerJob {
     transcript: SharedPaneTranscript,
     pane_output: PaneOutputSender,
     timer: PaneGroundTimer,
+}
+
+/// Restarts a restored pane's ground timer, if its parser is mid-sequence.
+pub(crate) fn resume_pane_ground_timer(
+    session_name: &rmux_proto::SessionName,
+    pane_id: PaneId,
+    transcript: &SharedPaneTranscript,
+    pane_output: &PaneOutputSender,
+) -> bool {
+    let timer = transcript
+        .lock()
+        .expect("pane transcript mutex must not be poisoned")
+        .resume_ground_timer();
+    let Some(timer) = timer else {
+        return false;
+    };
+    schedule_pane_ground_timer(
+        session_name,
+        pane_id,
+        Arc::clone(transcript),
+        pane_output.clone(),
+        timer,
+    );
+    true
 }
 
 fn schedule_pane_ground_timer(

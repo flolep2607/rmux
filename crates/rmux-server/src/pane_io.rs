@@ -176,6 +176,8 @@ use persistent_overlay::{
     replacement_persistent_overlay_frame, switch_requires_screen_clear,
     take_pending_persistent_overlay_for_state, update_persistent_overlay_cache,
 };
+#[cfg(unix)]
+pub(crate) use reader::resume_pane_ground_timer;
 #[cfg(windows)]
 pub(crate) use reader::spawn_pane_exit_watcher;
 pub(crate) use reader::spawn_pane_output_reader;
@@ -203,8 +205,8 @@ pub(crate) use types::{
 use wire::{
     emit_attach_bytes, emit_attach_frame, emit_attach_message, emit_attach_stop,
     emit_coalescible_render_frame, emit_detached_attach_stop, emit_exited_attach_stop,
-    emit_render_frame, invalid_attach_message, open_attach_target, read_socket_bytes,
-    recv_pane_output_optional, try_read_socket_bytes,
+    emit_render_frame, emit_upgrading_attach_stop, invalid_attach_message, open_attach_target,
+    read_socket_bytes, recv_pane_output_optional, try_read_socket_bytes,
 };
 
 #[cfg(any(unix, windows))]
@@ -315,7 +317,11 @@ pub(crate) async fn forward_attach(
                     AttachExitReason::ServerShutdown
                 };
                 log_attach_exit(&live_input, &current_target, reason);
-                let _ = emit_attach_stop(&stream, &current_target).await;
+                if live_input.handler.server_upgrading() {
+                    let _ = emit_upgrading_attach_stop(&stream, &current_target).await;
+                } else {
+                    let _ = emit_attach_stop(&stream, &current_target).await;
+                }
                 return Ok(());
             }
             // Socket reads and attach-control refreshes can both remain

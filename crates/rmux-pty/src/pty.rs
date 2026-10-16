@@ -398,6 +398,19 @@ impl PtyMaster {
         self.io
     }
 
+    /// Wraps a master this process already holds, such as one inherited
+    /// across a live handover's exec.
+    ///
+    /// Nothing about the descriptor changes. A master from [`PtyPair::open`]
+    /// is nonblocking, and that flag lives on the open file description, so
+    /// one inherited across an exec still is; [`PtyIo::set_nonblocking`]
+    /// sets it on one that is not.
+    #[cfg(unix)]
+    #[must_use]
+    pub fn from_owned_fd(fd: OwnedFd) -> Self {
+        Self::new(fd)
+    }
+
     /// Consumes this Unix PTY master and returns its nonblocking owned file descriptor.
     #[cfg(unix)]
     pub fn into_owned_fd(self) -> io::Result<OwnedFd> {

@@ -226,6 +226,22 @@ impl BackgroundTaskRegistry {
         BackgroundTaskShutdown { tasks }
     }
 
+    /// The names of the tasks still running, for a handover's admission.
+    pub(in crate::handler) fn running_task_names(&self) -> Vec<&'static str> {
+        let mut names: Vec<_> = self
+            .inner
+            .lock()
+            .expect("background task registry mutex must not be poisoned")
+            .tasks
+            .iter()
+            .filter(|task| !task.handle.is_finished())
+            .map(|task| task.name)
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
     #[cfg(test)]
     fn task_running(&self, name: &'static str) -> bool {
         self.inner

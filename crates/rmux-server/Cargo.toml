@@ -63,6 +63,12 @@ fuzzing = []
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["event", "fs", "net", "process"] }
 
+# A live handover re-executes its daemon in place, so the test's daemon is
+# this test binary itself, and `main` is both: no libtest harness.
+[[test]]
+name = "live_handover"
+harness = false
+
 [dev-dependencies]
 rmux-core = { workspace = true, features = ["test-seams"] }
 rustix = { version = "1.1.4", features = ["event", "fs", "termios"] }
