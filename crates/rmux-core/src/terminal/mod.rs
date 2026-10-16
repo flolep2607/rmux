@@ -219,6 +219,14 @@ impl TerminalParser {
         self.parser.osc_colour(slot)
     }
 
+    pub(crate) fn program_status(&self) -> &crate::program_status::ProgramStatusRecords {
+        self.parser.program_status()
+    }
+
+    pub(crate) fn program_exited(&mut self) {
+        self.parser.program_status_mut().program_ended();
+    }
+
     fn cell_state_ansi(&self, cell: &crate::input::CellState) -> Vec<u8> {
         let mut out = self.screen.render_cell_state_ansi(cell);
         append_character_sets(cell, &mut out);
@@ -260,8 +268,12 @@ impl TerminalParser {
     /// current cell attributes.
     pub(crate) fn reset_parser(&mut self) {
         let input_buffer_limit = self.parser.configured_input_buffer_limit();
+        // Program status is what the program said, not parser progress, so a
+        // parser rebuilt for recovery keeps it.
+        let program_status = std::mem::take(self.parser.program_status_mut());
         self.parser = InputParser::new();
         self.parser.set_input_buffer_limit(input_buffer_limit);
+        *self.parser.program_status_mut() = program_status;
     }
 }
 
@@ -357,6 +369,43 @@ mod tests {
         assert_eq!(passthroughs[0].cursor_y(), 1);
         assert_eq!(passthroughs[0].payload(), b"\x1b]52;c;QQ==\x07");
         assert!(parser.take_terminal_passthrough().is_empty());
+    }
+
+    #[test]
+    fn program_status_is_answered_kept_and_reset_across_split_feeds() {
+        use crate::program_status::ProgramState;
+
+        let mut parser = TerminalParser::new(size(20, 4), 10);
+        // Split mid-introducer, mid-payload and mid-terminator, as pty reads
+        // split them.
+        for chunk in [&b"\x1b]75"[..], b"01;?\x1b", b"\\x"] {
+            parser.feed(chunk);
+        }
+        assert_eq!(parser.take_replies(), b"\x1b]7501;?\x1b\\");
+        parser.feed(b"\x1b]7501;?\x07");
+        assert_eq!(parser.take_replies(), b"\x1b]7501;?\x07");
+
+        parser.feed(b"\x1b]7501;state=work");
+        parser.feed(b"ing:app=claude-code\x07");
+        let root = parser.program_status().root().expect("root record is kept");
+        assert_eq!(root.state(), ProgramState::Working);
+        assert_eq!(root.app(), Some("claude-code"));
+        assert!(parser.take_replies().is_empty(), "a report is never echoed");
+        assert!(parser.take_terminal_passthrough().is_empty());
+
+        parser.reset_parser();
+        assert!(parser.program_status().root().is_some());
+
+        parser.feed(b"\x1b]133;A\x07");
+        assert!(parser.program_status().root().is_none());
+
+        parser.feed(b"\x1b]7501;state=done\x1b\\");
+        assert!(parser.program_status().root().is_some());
+        parser.feed(b"\x1bc");
+        assert!(
+            parser.program_status().is_empty(),
+            "RIS clears every record"
+        );
     }
 
     #[test]

@@ -68,6 +68,7 @@ pub(crate) fn dispatch_esc<W: ScreenWriter + ?Sized>(parser: &mut InputParser, w
             parser.cell.reset();
             parser.kitty.reset();
             kitty::apply(&parser.kitty, writer);
+            parser.program_status.clear();
             writer.full_reset();
         }
         EscCommand::Ind => {
@@ -511,6 +512,11 @@ pub(crate) fn dispatch_osc<W: ScreenWriter + ?Sized>(parser: &mut InputParser, w
         i += 1;
     }
 
+    if option == crate::program_status::PROGRAM_STATUS_OSC {
+        dispatch_program_status(parser, i);
+        return;
+    }
+
     // Owned: the OSC 10/11/12 arms below mutate parser state (stored colours
     // and the reply buffer) while the payload is still in use.
     let data = String::from_utf8_lossy(&buf[i..]).into_owned();
@@ -551,8 +557,36 @@ pub(crate) fn dispatch_osc<W: ScreenWriter + ?Sized>(parser: &mut InputParser, w
             parser.reset_osc_colour(OscColourSlot::Cursor);
             writer.osc_reset_cursor();
         }
-        133 => writer.osc_shell_integration(&data),
+        133 => {
+            // A prompt mark means the shell has the terminal back, so the
+            // program that reported through OSC 7501 is no longer running.
+            if data.starts_with('A') {
+                parser.program_status.program_ended();
+            }
+            writer.osc_shell_integration(&data);
+        }
         _ => {}
+    }
+}
+
+/// Answers an OSC 7501 query or applies a report; `payload_start` is where
+/// the payload begins in the parser's string buffer.
+///
+/// Nothing reaches the screen writer, so nothing is forwarded to an attached
+/// terminal: the records belong to this pane and are read from the daemon.
+fn dispatch_program_status(parser: &mut InputParser, payload_start: usize) {
+    use crate::program_status::{
+        parse_program_status, program_status_query_reply, ProgramStatusSequence,
+    };
+
+    let bel = parser.input_end == InputEndType::Bel;
+    // `ESC ]` plus the buffered string plus the terminator: the spec's limit
+    // counts the whole sequence.
+    let sequence_len = 2 + parser.input_buf.len() + if bel { 1 } else { 2 };
+    match parse_program_status(&parser.input_buf[payload_start..], sequence_len) {
+        Some(ProgramStatusSequence::Query) => parser.reply(program_status_query_reply(bel)),
+        Some(sequence) => parser.program_status.apply(sequence),
+        None => {}
     }
 }
 

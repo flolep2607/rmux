@@ -32,6 +32,8 @@ mod layout;
 mod lifecycle;
 mod options;
 mod pane;
+/// OSC 7501, the Program Status Protocol: what a pane's program reports it is doing.
+pub mod program_status;
 mod screen;
 mod session;
 pub mod style;
@@ -80,6 +82,9 @@ pub use options::{
     OptionStore, ShowOptionsMode,
 };
 pub use pane::{Pane, PaneGeometry};
+pub use program_status::{
+    ProgramBlockedKind, ProgramState, ProgramStatusRecord, ProgramStatusRecords,
+};
 pub use screen::{
     RecoveryRow, RecoveryRowRenderer, Screen, ScreenCellRef, ScreenCellView, ScreenLineView,
 };

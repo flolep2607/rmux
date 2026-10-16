@@ -29,6 +29,15 @@ an rmux daemon. The plan and its reasons are in flolep2607/cctop#197.
   shim (which runs an `rmux` binary) off its panes' `PATH`; and
   `WEB_SHARE_PROTOCOL_VERSION` is public, so a pinned copy of the share page
   can be tested against the server it ships with.
+- **OSC 7501, the Program Status Protocol.** A pane answers a program's
+  `OSC 7501 ; ? ST` query on its pty input and keeps the status records it
+  reports (`crates/rmux-core/src/program_status.rs`), so cctop reads what an
+  agent says it is doing — working, blocked, done, idle, error — instead of
+  guessing from the screen. The root record reads back as the pane formats
+  `#{pane_program_state}`, `_kind`, `_progress`, `_app`, `_title` and `_msg`,
+  all empty when there is no record; formats are strings in the existing
+  protocol, so no wire message changed. Reports are never forwarded to an
+  attached terminal, where every pane's records would collide.
 - **Upstream pull requests merged early.** Helvesec/rmux#227, the Kitty
   keyboard protocol's disambiguate flag, which lets a pane tell Shift+Enter
   from Enter (Claude Code's newline). Merged as upstream's own commits, so

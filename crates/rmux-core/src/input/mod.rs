@@ -157,6 +157,11 @@ pub struct InputParser {
     /// Application-set OSC 10/11/12 colours (fg, bg, cursor). The daemon does
     /// not invent colours for an unknown attached terminal palette.
     osc_colours: [Option<String>; 3],
+
+    /// OSC 7501 records. Kept here, beside the OSC 10/11/12 colours, because
+    /// they are state the program set through this parser and that a full
+    /// reset (RIS) clears.
+    program_status: crate::program_status::ProgramStatusRecords,
 }
 
 impl InputParser {
@@ -190,7 +195,20 @@ impl InputParser {
             reply_buf: Vec::new(),
             terminal_passthrough_dropped_count: 0,
             osc_colours: [None, None, None],
+            program_status: crate::program_status::ProgramStatusRecords::default(),
         }
+    }
+
+    /// The OSC 7501 records the pane's program has reported.
+    pub(crate) fn program_status(&self) -> &crate::program_status::ProgramStatusRecords {
+        &self.program_status
+    }
+
+    /// Mutable access to the OSC 7501 records.
+    pub(crate) fn program_status_mut(
+        &mut self,
+    ) -> &mut crate::program_status::ProgramStatusRecords {
+        &mut self.program_status
     }
 
     /// Returns an application-defined colour for an OSC 10/11/12 query.

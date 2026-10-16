@@ -1710,6 +1710,10 @@ mod pane_pipe_tests;
 mod pane_exit_format_tests;
 
 #[cfg(test)]
+#[path = "handler_program_status_tests.rs"]
+mod program_status_tests;
+
+#[cfg(test)]
 #[path = "handler_pane_silence_timer_tests.rs"]
 mod pane_silence_timer_tests;
 

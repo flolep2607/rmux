@@ -129,6 +129,7 @@ impl HandlerState {
             .entry(runtime_session_name.clone())
             .or_default()
             .insert(pane_id, metadata);
+        self.mark_runtime_pane_program_exited(runtime_session_name, pane_id);
         self.mark_pane_lifecycle_exited(pane_id, metadata);
         Ok(Some(metadata))
     }
@@ -146,6 +147,7 @@ impl HandlerState {
         let runtime_session_name =
             self.runtime_session_name_for_window(target.session_name(), target.window_index());
         let metadata = PaneExitMetadata::without_exit_details();
+        self.mark_runtime_pane_program_exited(&runtime_session_name, pane_id);
         self.dead_panes
             .entry(runtime_session_name)
             .or_default()

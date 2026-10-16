@@ -428,6 +428,15 @@ impl PaneTranscript {
         self.terminal.dynamic_colour(slot)
     }
 
+    /// The pane's OSC 7501 root record, the one `#{pane_program_*}` shows.
+    pub(crate) fn program_status_root(&self) -> Option<rmux_core::ProgramStatusRecord> {
+        self.terminal.program_status().root().cloned()
+    }
+
+    pub(crate) fn program_exited(&mut self) {
+        self.terminal.program_exited();
+    }
+
     pub(crate) fn clear_history(&mut self, reset_hyperlinks: bool) {
         self.terminal
             .screen_mut()

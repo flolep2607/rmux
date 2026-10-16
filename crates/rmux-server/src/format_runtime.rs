@@ -216,6 +216,25 @@ impl<'a> RuntimeFormatContext<'a> {
         Some(self.pane_lifecycle()?.revision.to_string())
     }
 
+    /// The pane's OSC 7501 root record, read once per field. `None` outside a
+    /// pane context; inside one, a pane with no record shows every
+    /// `pane_program_*` field empty, so "no report" reads the same as an
+    /// unset field rather than as an unknown variable.
+    fn pane_program_field(
+        &self,
+        field: impl FnOnce(&rmux_core::ProgramStatusRecord) -> Option<String>,
+    ) -> Option<String> {
+        let session = self.session?;
+        let pane = self.pane?;
+        Some(
+            self.state
+                .and_then(|state| state.pane_program_status(session.name(), pane.id()))
+                .as_ref()
+                .and_then(field)
+                .unwrap_or_default(),
+        )
+    }
+
     fn pane_output_sequence(&self) -> Option<String> {
         let session = self.session?;
         let pane = self.pane?;
