@@ -9,6 +9,8 @@ use crate::style::Style;
 
 #[path = "grid/cell.rs"]
 mod cell;
+#[path = "grid/handover.rs"]
+mod handover;
 #[path = "grid/history_bytes.rs"]
 mod history_bytes;
 #[path = "grid/render.rs"]

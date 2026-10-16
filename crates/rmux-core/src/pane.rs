@@ -137,6 +137,54 @@ impl Pane {
     }
 }
 
+// Handover conversion (docs/design/live-handover.md).
+impl Pane {
+    pub(crate) fn to_handover(&self) -> crate::handover::PaneV1 {
+        let Self {
+            id,
+            index,
+            geometry,
+            active_point,
+            created_at,
+            activity_at,
+        } = self;
+        let PaneGeometry { x, y, cols, rows } = *geometry;
+        crate::handover::PaneV1 {
+            id: id.as_u32(),
+            index: *index,
+            x,
+            y,
+            cols,
+            rows,
+            active_point: *active_point,
+            created_at: *created_at,
+            activity_at: *activity_at,
+        }
+    }
+
+    pub(crate) fn from_handover(dto: crate::handover::PaneV1) -> Self {
+        let crate::handover::PaneV1 {
+            id,
+            index,
+            x,
+            y,
+            cols,
+            rows,
+            active_point,
+            created_at,
+            activity_at,
+        } = dto;
+        Self {
+            id: PaneId::new(id),
+            index,
+            geometry: PaneGeometry { x, y, cols, rows },
+            active_point,
+            created_at,
+            activity_at,
+        }
+    }
+}
+
 fn current_unix_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

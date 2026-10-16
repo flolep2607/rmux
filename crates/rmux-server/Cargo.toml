@@ -31,7 +31,9 @@ rmux-proto = { workspace = true }
 rmux-pty = { workspace = true }
 rmux-web-crypto = { workspace = true, optional = true }
 zeroize = { version = "1", default-features = false, optional = true }
-serde = { version = "1", features = ["derive"], optional = true }
+# Always on: the handover state format (src/handover.rs) derives it as well
+# as the web share.
+serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", optional = true }
 sha1 = { version = "0.10", optional = true }
 sha2 = { version = "0.10", optional = true }
@@ -49,7 +51,6 @@ web = [
     "dep:hkdf",
     "dep:httparse",
     "dep:rmux-web-crypto",
-    "dep:serde",
     "dep:serde_json",
     "dep:sha1",
     "dep:sha2",

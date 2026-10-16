@@ -616,6 +616,119 @@ fn empty_environment_entries() -> &'static HashMap<String, EnvironmentEntry> {
     EMPTY.get_or_init(HashMap::new)
 }
 
+// Handover conversion (docs/design/live-handover.md).
+impl EnvironmentStore {
+    /// The environment store as handover data.
+    #[must_use]
+    pub fn to_handover(&self) -> crate::handover::EnvironmentStoreV1 {
+        fn entries(
+            map: &HashMap<String, EnvironmentEntry>,
+        ) -> Vec<(String, crate::handover::EnvironmentEntryV1)> {
+            let mut entries: Vec<_> = map
+                .iter()
+                .map(|(name, entry)| {
+                    let EnvironmentEntry {
+                        value,
+                        display_value,
+                        flags,
+                        implicit,
+                    } = entry;
+                    (
+                        name.clone(),
+                        crate::handover::EnvironmentEntryV1 {
+                            value: value.clone(),
+                            display_value: display_value.clone(),
+                            flags: *flags,
+                            implicit: *implicit,
+                        },
+                    )
+                })
+                .collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            entries
+        }
+        fn names(set: &HashSet<String>) -> Vec<String> {
+            let mut names: Vec<_> = set.iter().cloned().collect();
+            names.sort();
+            names
+        }
+
+        let Self {
+            global,
+            sessions,
+            global_unsets,
+            session_unsets,
+        } = self;
+        let mut sessions: Vec<_> = sessions
+            .iter()
+            .map(|(session, map)| (session.as_str().to_owned(), entries(map)))
+            .collect();
+        sessions.sort_by(|left, right| left.0.cmp(&right.0));
+        let mut session_unsets: Vec<_> = session_unsets
+            .iter()
+            .map(|(session, set)| (session.as_str().to_owned(), names(set)))
+            .collect();
+        session_unsets.sort_by(|left, right| left.0.cmp(&right.0));
+        crate::handover::EnvironmentStoreV1 {
+            global: entries(global),
+            sessions,
+            global_unsets: names(global_unsets),
+            session_unsets,
+        }
+    }
+
+    /// Rebuilds the environment store from handover data.
+    pub fn from_handover(
+        dto: crate::handover::EnvironmentStoreV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        use crate::handover::{session_name, HandoverError};
+
+        fn entries(
+            entries: Vec<(String, crate::handover::EnvironmentEntryV1)>,
+        ) -> HashMap<String, EnvironmentEntry> {
+            entries
+                .into_iter()
+                .map(|(name, entry)| {
+                    let crate::handover::EnvironmentEntryV1 {
+                        value,
+                        display_value,
+                        flags,
+                        implicit,
+                    } = entry;
+                    (
+                        name,
+                        EnvironmentEntry {
+                            value,
+                            display_value,
+                            flags,
+                            implicit,
+                        },
+                    )
+                })
+                .collect()
+        }
+
+        let crate::handover::EnvironmentStoreV1 {
+            global,
+            sessions,
+            global_unsets,
+            session_unsets,
+        } = dto;
+        Ok(Self {
+            global: entries(global),
+            sessions: sessions
+                .into_iter()
+                .map(|(session, map)| Ok((session_name(&session)?, entries(map))))
+                .collect::<Result<_, HandoverError>>()?,
+            global_unsets: global_unsets.into_iter().collect(),
+            session_unsets: session_unsets
+                .into_iter()
+                .map(|(session, names)| Ok((session_name(&session)?, names.into_iter().collect())))
+                .collect::<Result<_, HandoverError>>()?,
+        })
+    }
+}
+
 #[cfg(test)]
 #[path = "environment/tests.rs"]
 mod tests;

@@ -198,4 +198,22 @@ impl TerminalScreen {
     pub fn reset_parser(&mut self) {
         self.parser.reset_parser();
     }
+
+    /// The whole terminal as handover data: the screen with its scrollback
+    /// and alternate screen, and what the parser holds beyond it.
+    #[must_use]
+    pub fn to_handover(&self) -> crate::handover::TerminalStateV1 {
+        let Self { parser } = self;
+        parser.to_handover()
+    }
+
+    /// Rebuilds a terminal from handover data, refusing a state the screen
+    /// code could not work with rather than panicking later.
+    pub fn from_handover(
+        state: crate::handover::TerminalStateV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        Ok(Self {
+            parser: TerminalParser::from_handover(state)?,
+        })
+    }
 }

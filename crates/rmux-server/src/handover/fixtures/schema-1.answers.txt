@@ -1,0 +1,335 @@
+$ list-sessions -F '#{session_name} #{session_id} #{session_windows} #{session_group}'
+alpha $0 2 alpha
+alpha-peer $2 2 alpha
+beta $1 1 
+$ list-windows -a -F '#{session_name}:#{window_index} #{window_id} #{window_name} #{window_layout} #{window_zoomed_flag} #{window_active}'
+alpha:0 @0 editor 1f9f,120x40,0,0{80x40,0,0,0,39x40,81,0[39x20,81,0,1,39x19,81,21,2]} 0 1
+alpha:3 @1 renamed-logs ab00,120x40,0,0,3 0 0
+alpha-peer:0 @0 editor 1f9f,120x40,0,0{80x40,0,0,0,39x40,81,0[39x20,81,0,1,39x19,81,21,2]} 0 1
+alpha-peer:3 @1 renamed-logs ab00,120x40,0,0,3 0 0
+beta:0 @2 cat c894,100x30,0,0[100x15,0,0,4,100x14,0,16,5] 1 1
+$ show-options -gv @user-option
+a value with spaces
+$ show-options -gv status-left
+handover #S
+$ show-options -wv -t alpha:0 pane-border-style
+fg=red
+$ show-options -pv -t alpha:0.1 @pane-option
+pane-value
+$ show-environment -g HANDOVER_GLOBAL
+HANDOVER_GLOBAL=global value
+$ show-environment -t alpha HANDOVER_SESSION
+HANDOVER_SESSION=session-value
+$ show-hooks -g after-new-window
+after-new-window[0] display-message created
+after-new-window[1] display-message again
+$ list-keys -T root
+bind-key -T root MouseDown1Pane            select-pane -t = \; send-keys -M
+bind-key -T root MouseDown1Status          switch-client -t =
+bind-key -T root MouseDown1Border          select-pane -M
+bind-key -T root MouseDown1ScrollbarUp     if-shell -F -t = "#{pane_in_mode}" { send-keys -X page-up } { copy-mode -u }
+bind-key -T root MouseDown1ScrollbarDown   if-shell -F -t = "#{pane_in_mode}" { send-keys -X page-down } { copy-mode -d }
+bind-key -T root MouseDown1Control8        resize-pane -Z
+bind-key -T root MouseDown1Control9        display-menu -O -T "Kill pane #{pane_index}?" -t = -x M -y M Yes y { kill-pane -t = } No n {  }
+bind-key -T root MouseDown2Pane            select-pane -t = \; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { paste-buffer -p }
+bind-key -T root MouseDown3Pane            if-shell -F -t = "#{||:#{mouse_any_flag},#{&&:#{pane_in_mode},#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}}}" { select-pane -t = ; send-keys -M } { display-menu -T "#[align=centre]#{pane_index} (#{pane_id})" -t = -x M -y M "#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Top,}" < { send-keys -X history-top } "#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Bottom,}" > { send-keys -X history-bottom } '' "#{?#{&&:#{buffer_size},#{!:#{pane_in_mode}}},Paste #[underscore]#{=/9/...:buffer_sample},}" p { paste-buffer } '' "#{?mouse_word,Search For #[underscore]#{=/9/...:mouse_word},}" C-r { if-shell -F "#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}" "copy-mode -t=" ; send-keys -X -t = search-backward -- "#{q:mouse_word}" } "#{?mouse_word,Type #[underscore]#{=/9/...:mouse_word},}" C-y { copy-mode -q ; send-keys -l "#{q:mouse_word}" } "#{?mouse_word,Copy #[underscore]#{=/9/...:mouse_word},}" c { copy-mode -q ; set-buffer "#{q:mouse_word}" } "#{?mouse_line,Copy Line,}" l { copy-mode -q ; set-buffer "#{q:mouse_line}" } '' "#{?mouse_hyperlink,Type #[underscore]#{=/9/...:mouse_hyperlink},}" C-h { copy-mode -q ; send-keys -l "#{q:mouse_hyperlink}" } "#{?mouse_hyperlink,Copy #[underscore]#{=/9/...:mouse_hyperlink},}" h { copy-mode -q ; set-buffer "#{q:mouse_hyperlink}" } '' "#{?#{!:#{pane_floating_flag}},Horizontal Split,}" h { split-window -h } "#{?#{!:#{pane_floating_flag}},Vertical Split,}" v { split-window -v } '' "#{?#{&&:#{!:#{pane_floating_flag}},#{>:#{window_panes},1}},Swap Up,}" u { swap-pane -U } "#{?#{&&:#{!:#{pane_floating_flag}},#{>:#{window_panes},1}},Swap Down,}" d { swap-pane -D } "#{?pane_marked_set,,-}Swap Marked" s { swap-pane } '' Kill X { kill-pane } Respawn R { respawn-pane -k } "#{?pane_marked,Unmark,Mark}" m { select-pane -m } "#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}" z { resize-pane -Z } }
+bind-key -T root MouseDown3Status          display-menu -T "#[align=centre]#{window_index}:#{window_name}" -t = -x W -y W "#{?#{>:#{session_windows},1},,-}Swap Left" l { swap-window -t :-1 } "#{?#{>:#{session_windows},1},,-}Swap Right" r { swap-window -t :+1 } "#{?pane_marked_set,,-}Swap Marked" s { swap-window } '' Kill X { kill-window } Respawn R { respawn-window -k } "#{?pane_marked,Unmark,Mark}" m { select-pane -m } Rename n { command-prompt -F -I "#W" { rename-window -t "#{window_id}" "%%" } } '' "New After" w { new-window -a } "New At End" W { new-window }
+bind-key -T root MouseDown3StatusLeft      display-menu -T "#[align=centre]#{session_name}" -t = -x M -y W Next n { switch-client -n } Previous p { switch-client -p } '' Renumber N { move-window -r } Rename r { command-prompt -I "#S" { rename-session "%%" } } Detach d { detach-client } '' "New Session" s { new-session } "New Window" w { new-window }
+bind-key -T root MouseDrag1Pane            if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -M }
+bind-key -T root MouseDrag1Border          resize-pane -M
+bind-key -T root MouseDrag1ScrollbarSlider if-shell -F -t = "#{pane_in_mode}" { send-keys -X scroll-to-mouse } { copy-mode -S }
+bind-key -T root WheelDownStatus           next-window
+bind-key -T root WheelUpPane               if-shell -F "#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -e }
+bind-key -T root WheelUpStatus             previous-window
+bind-key -T root DoubleClick1Pane          select-pane -t = \; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -H ; send-keys -X select-word ; run-shell -d 0.3 ; send-keys -X copy-pipe-and-cancel }
+bind-key -T root TripleClick1Pane          select-pane -t = \; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -H ; send-keys -X select-line ; run-shell -d 0.3 ; send-keys -X copy-pipe-and-cancel }
+bind-key -T root M-MouseDown3Pane          display-menu -T "#[align=centre]#{pane_index} (#{pane_id})" -t = -x M -y M "#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Top,}" < { send-keys -X history-top } "#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Bottom,}" > { send-keys -X history-bottom } '' "#{?#{&&:#{buffer_size},#{!:#{pane_in_mode}}},Paste #[underscore]#{=/9/...:buffer_sample},}" p { paste-buffer } '' "#{?mouse_word,Search For #[underscore]#{=/9/...:mouse_word},}" C-r { if-shell -F "#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}" "copy-mode -t=" ; send-keys -X -t = search-backward -- "#{q:mouse_word}" } "#{?mouse_word,Type #[underscore]#{=/9/...:mouse_word},}" C-y { copy-mode -q ; send-keys -l "#{q:mouse_word}" } "#{?mouse_word,Copy #[underscore]#{=/9/...:mouse_word},}" c { copy-mode -q ; set-buffer "#{q:mouse_word}" } "#{?mouse_line,Copy Line,}" l { copy-mode -q ; set-buffer "#{q:mouse_line}" } '' "#{?mouse_hyperlink,Type #[underscore]#{=/9/...:mouse_hyperlink},}" C-h { copy-mode -q ; send-keys -l "#{q:mouse_hyperlink}" } "#{?mouse_hyperlink,Copy #[underscore]#{=/9/...:mouse_hyperlink},}" h { copy-mode -q ; set-buffer "#{q:mouse_hyperlink}" } '' "#{?#{!:#{pane_floating_flag}},Horizontal Split,}" h { split-window -h } "#{?#{!:#{pane_floating_flag}},Vertical Split,}" v { split-window -v } '' "#{?#{&&:#{!:#{pane_floating_flag}},#{>:#{window_panes},1}},Swap Up,}" u { swap-pane -U } "#{?#{&&:#{!:#{pane_floating_flag}},#{>:#{window_panes},1}},Swap Down,}" d { swap-pane -D } "#{?pane_marked_set,,-}Swap Marked" s { swap-pane } '' Kill X { kill-pane } Respawn R { respawn-pane -k } "#{?pane_marked,Unmark,Mark}" m { select-pane -m } "#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}" z { resize-pane -Z }
+bind-key -T root M-MouseDown3Status        display-menu -T "#[align=centre]#{window_index}:#{window_name}" -t = -x W -y W "#{?#{>:#{session_windows},1},,-}Swap Left" l { swap-window -t :-1 } "#{?#{>:#{session_windows},1},,-}Swap Right" r { swap-window -t :+1 } "#{?pane_marked_set,,-}Swap Marked" s { swap-window } '' Kill X { kill-window } Respawn R { respawn-window -k } "#{?pane_marked,Unmark,Mark}" m { select-pane -m } Rename n { command-prompt -F -I "#W" { rename-window -t "#{window_id}" "%%" } } '' "New After" w { new-window -a } "New At End" W { new-window }
+bind-key -T root M-MouseDown3StatusLeft    display-menu -T "#[align=centre]#{session_name}" -t = -x M -y W Next n { switch-client -n } Previous p { switch-client -p } '' Renumber N { move-window -r } Rename r { command-prompt -I "#S" { rename-session "%%" } } Detach d { detach-client } '' "New Session" s { new-session } "New Window" w { new-window }
+bind-key -T root C-MouseDown1Pane          swap-pane -s @
+bind-key -T root C-MouseDown1Status        swap-window -t @
+bind-key -T root F12                       display-message bound
+$ list-buffers -F '#{buffer_name} #{buffer_size}'
+buffer0 14
+named 21
+$ pane alpha:0.0
+[1m[30m00000 日本語 👍🏽 é[0m ]8;id=l0;https://example.com/0\link]8;;\
+00001 plain scrollback line
+00002 plain scrollback line
+00003 plain scrollback line
+00004 plain scrollback line
+[1m[35m00005 日本語 👍🏽 é[0m ]8;id=l5;https://example.com/5\link]8;;\
+00006 plain scrollback line
+00007 plain scrollback line
+00008 plain scrollback line
+00009 plain scrollback line
+[1m[32m00010 日本語 👍🏽 é[0m ]8;id=l10;https://example.com/10\link]8;;\
+00011 plain scrollback line
+00012 plain scrollback line
+00013 plain scrollback line
+00014 plain scrollback line
+[1m[37m00015 日本語 👍🏽 é[0m ]8;id=l15;https://example.com/15\link]8;;\
+00016 plain scrollback line
+00017 plain scrollback line
+00018 plain scrollback line
+00019 plain scrollback line
+[1m[34m00020 日本語 👍🏽 é[0m ]8;id=l20;https://example.com/20\link]8;;\
+00021 plain scrollback line
+00022 plain scrollback line
+00023 plain scrollback line
+00024 plain scrollback line
+[1m[31m00025 日本語 👍🏽 é[0m ]8;id=l25;https://example.com/25\link]8;;\
+00026 plain scrollback line
+00027 plain scrollback line
+00028 plain scrollback line
+00029 plain scrollback line
+[1m[36m00030 日本語 👍🏽 é[0m ]8;id=l30;https://example.com/30\link]8;;\
+00031 plain scrollback line
+00032 plain scrollback line
+00033 plain scrollback line
+00034 plain scrollback line
+[1m[33m00035 日本語 👍🏽 é[0m ]8;id=l35;https://example.com/35\link]8;;\
+00036 plain scrollback line
+00037 plain scrollback line
+00038 plain scrollback line
+00039 plain scrollback line
+[1m[30m00040 日本語 👍🏽 é[0m ]8;id=l40;https://example.com/40\link]8;;\
+00041 plain scrollback line
+00042 plain scrollback line
+00043 plain scrollback line
+00044 plain scrollback line
+[1m[35m00045 日本語 👍🏽 é[0m ]8;id=l45;https://example.com/45\link]8;;\
+00046 plain scrollback line
+00047 plain scrollback line
+00048 plain scrollback line
+00049 plain scrollback line
+[1m[32m00050 日本語 👍🏽 é[0m ]8;id=l50;https://example.com/50\link]8;;\
+00051 plain scrollback line
+00052 plain scrollback line
+00053 plain scrollback line
+00054 plain scrollback line
+[1m[37m00055 日本語 👍🏽 é[0m ]8;id=l55;https://example.com/55\link]8;;\
+00056 plain scrollback line
+00057 plain scrollback line
+00058 plain scrollback line
+00059 plain scrollback line
+[1m[34m00060 日本語 👍🏽 é[0m ]8;id=l60;https://example.com/60\link]8;;\
+00061 plain scrollback line
+00062 plain scrollback line
+00063 plain scrollback line
+00064 plain scrollback line
+[1m[31m00065 日本語 👍🏽 é[0m ]8;id=l65;https://example.com/65\link]8;;\
+00066 plain scrollback line
+00067 plain scrollback line
+00068 plain scrollback line
+00069 plain scrollback line
+[1m[36m00070 日本語 👍🏽 é[0m ]8;id=l70;https://example.com/70\link]8;;\
+00071 plain scrollback line
+00072 plain scrollback line
+00073 plain scrollback line
+00074 plain scrollback line
+[1m[33m00075 日本語 👍🏽 é[0m ]8;id=l75;https://example.com/75\link]8;;\
+00076 plain scrollback line
+00077 plain scrollback line
+00078 plain scrollback line
+00079 plain scrollback line
+[1m[30m00080 日本語 👍🏽 é[0m ]8;id=l80;https://example.com/80\link]8;;\
+00081 plain scrollback line
+00082 plain scrollback line
+00083 plain scrollback line
+00084 plain scrollback line
+[1m[35m00085 日本語 👍🏽 é[0m ]8;id=l85;https://example.com/85\link]8;;\
+00086 plain scrollback line
+00087 plain scrollback line
+00088 plain scrollback line
+00089 plain scrollback line
+[1m[32m00090 日本語 👍🏽 é[0m ]8;id=l90;https://example.com/90\link]8;;\
+00091 plain scrollback line
+00092 plain scrollback line
+00093 plain scrollback line
+00094 plain scrollback line
+[1m[37m00095 日本語 👍🏽 é[0m ]8;id=l95;https://example.com/95\link]8;;\
+00096 plain scrollback line
+00097 plain scrollback line
+00098 plain scrollback line
+00099 plain scrollback line
+[1m[34m00100 日本語 👍🏽 é[0m ]8;id=l100;https://example.com/100\link]8;;\
+00101 plain scrollback line
+00102 plain scrollback line
+00103 plain scrollback line
+00104 plain scrollback line
+[1m[31m00105 日本語 👍🏽 é[0m ]8;id=l105;https://example.com/105\link]8;;\
+00106 plain scrollback line
+00107 plain scrollback line
+00108 plain scrollback line
+00109 plain scrollback line
+[1m[36m00110 日本語 👍🏽 é[0m ]8;id=l110;https://example.com/110\link]8;;\
+00111 plain scrollback line
+00112 plain scrollback line
+00113 plain scrollback line
+00114 plain scrollback line
+[1m[33m00115 日本語 👍🏽 é[0m ]8;id=l115;https://example.com/115\link]8;;\
+00116 plain scrollback line
+00117 plain scrollback line
+00118 plain scrollback line
+00119 plain scrollback line
+$
+
+--- saved ---
+None
+--- state ---
+cursor (2, 39) mode 0x11 alternate false title "scrolled" path "file://host/project" history 81/50000 pending [] saved cursor (0, 0, false) program None
+$ pane alpha:0.1
+vim on the alternate screen
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--- saved ---
+Some("shell before vim\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
+--- state ---
+cursor (2, 4) mode 0x200010 alternate true title "fixture-host" path "" history 0/50000 pending [] saved cursor (0, 0, false) program None
+$ pane alpha:0.2
+┌─┐king
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--- saved ---
+None
+--- state ---
+cursor (3, 0) mode 0x11 alternate false title "fixture-host" path "" history 0/50000 pending [27, 93, 50, 59, 104, 97, 108, 102, 32, 97, 32, 116, 105] saved cursor (0, 0, false) program Some(ProgramStatusRecord { state: Working, kind: None, progress: None, app: Some("claude"), title: Some("Thinking"), msg: None })
+$ pane alpha:3.0
+wide 中文字 at the edge
+next
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--- saved ---
+None
+--- state ---
+cursor (4, 1) mode 0x11 alternate false title "fixture-host" path "" history 0/50000 pending [27, 91, 49, 59, 51] saved cursor (0, 0, false) program None
+$ pane beta:0.0
+done
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--- saved ---
+None
+--- state ---
+cursor (0, 1) mode 0x11 alternate false title "fixture-host" path "" history 0/50000 pending [] saved cursor (0, 0, false) program Some(ProgramStatusRecord { state: Done, kind: None, progress: None, app: Some("codex"), title: None, msg: None })
+$ pane beta:0.1
+👨‍👩 zero width joiners
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--- saved ---
+None
+--- state ---
+cursor (22, 0) mode 0x11 alternate false title "fixture-host" path "" history 0/50000 pending [230] saved cursor (0, 0, false) program None

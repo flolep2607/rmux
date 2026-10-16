@@ -277,6 +277,32 @@ impl TerminalParser {
     }
 }
 
+// Handover conversion (docs/design/live-handover.md).
+impl TerminalParser {
+    pub(crate) fn to_handover(&self) -> crate::handover::TerminalStateV1 {
+        let Self { parser, screen } = self;
+        crate::handover::TerminalStateV1 {
+            screen: screen.to_handover(),
+            parser: parser.to_handover(),
+        }
+    }
+
+    pub(crate) fn from_handover(
+        dto: crate::handover::TerminalStateV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        let crate::handover::TerminalStateV1 { screen, parser } = dto;
+        let screen = Screen::from_handover(screen)?;
+        let (parser, pending) = InputParser::from_handover(parser)?;
+        let mut terminal = Self { parser, screen };
+        // The unfinished sequence goes through the same transitions it went
+        // through the first time, so the state machine ends where it was. An
+        // unfinished sequence has, by definition, not been dispatched, so the
+        // replay writes nothing to the screen.
+        terminal.feed(&pending);
+        Ok(terminal)
+    }
+}
+
 fn append_character_sets(cell: &crate::input::CellState, out: &mut Vec<u8>) {
     out.extend_from_slice(if cell.g0set != 0 {
         b"\x1b(0"

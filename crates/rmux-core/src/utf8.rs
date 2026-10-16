@@ -524,6 +524,37 @@ fn hanguljamo_class(ch: char) -> HangulJamoClass {
     }
 }
 
+// Handover conversion (docs/design/live-handover.md).
+impl Utf8Config {
+    pub(crate) fn to_handover(&self) -> crate::handover::Utf8ConfigV1 {
+        let Self {
+            variation_selector_always_wide,
+            overrides,
+        } = self;
+        crate::handover::Utf8ConfigV1 {
+            variation_selector_always_wide: *variation_selector_always_wide,
+            overrides: overrides
+                .iter()
+                .map(|WidthOverride { start, end, width }| (*start, *end, *width))
+                .collect(),
+        }
+    }
+
+    pub(crate) fn from_handover(dto: crate::handover::Utf8ConfigV1) -> Self {
+        let crate::handover::Utf8ConfigV1 {
+            variation_selector_always_wide,
+            overrides,
+        } = dto;
+        Self {
+            variation_selector_always_wide,
+            overrides: overrides
+                .into_iter()
+                .map(|(start, end, width)| WidthOverride { start, end, width })
+                .collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "utf8/tests.rs"]
 mod tests;

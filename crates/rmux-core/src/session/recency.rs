@@ -46,4 +46,11 @@ impl SessionRecency {
             .expect("session recency sequence exhausted");
         Self(sequence)
     }
+
+    /// The token's place in the order, for a handover to carry. It is only
+    /// ever used to sort sessions before fresh tokens are minted for them in
+    /// the new process, so the token itself still never crosses a process.
+    pub(super) const fn handover_order_key(self) -> u64 {
+        self.0
+    }
 }

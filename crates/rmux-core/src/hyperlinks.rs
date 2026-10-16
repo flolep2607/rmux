@@ -176,6 +176,85 @@ impl Hyperlinks {
     }
 }
 
+// Handover conversion (docs/design/live-handover.md). The table goes across
+// whole, with its counters, because grid cells hold its inner ids.
+impl Hyperlinks {
+    pub(crate) fn to_handover(&self) -> crate::handover::HyperlinksV1 {
+        let Self {
+            next_inner,
+            next_external,
+            order,
+            by_inner,
+            by_uri,
+        } = self;
+        crate::handover::HyperlinksV1 {
+            next_inner: *next_inner,
+            next_external: *next_external,
+            order: order.iter().copied().collect(),
+            entries: by_inner
+                .values()
+                .map(|entry| {
+                    let HyperlinkEntry {
+                        inner_id,
+                        internal_id,
+                        external_id,
+                        uri,
+                    } = entry;
+                    crate::handover::HyperlinkEntryV1 {
+                        inner_id: *inner_id,
+                        internal_id: internal_id.clone(),
+                        external_id: external_id.clone(),
+                        uri: uri.clone(),
+                    }
+                })
+                .collect(),
+            by_uri: by_uri
+                .iter()
+                .map(|((internal_id, uri), inner)| (internal_id.clone(), uri.clone(), *inner))
+                .collect(),
+        }
+    }
+
+    pub(crate) fn from_handover(dto: crate::handover::HyperlinksV1) -> Self {
+        let crate::handover::HyperlinksV1 {
+            next_inner,
+            next_external,
+            order,
+            entries,
+            by_uri,
+        } = dto;
+        Self {
+            next_inner,
+            next_external,
+            order: order.into_iter().collect(),
+            by_inner: entries
+                .into_iter()
+                .map(|entry| {
+                    let crate::handover::HyperlinkEntryV1 {
+                        inner_id,
+                        internal_id,
+                        external_id,
+                        uri,
+                    } = entry;
+                    (
+                        inner_id,
+                        HyperlinkEntry {
+                            inner_id,
+                            internal_id,
+                            external_id,
+                            uri,
+                        },
+                    )
+                })
+                .collect(),
+            by_uri: by_uri
+                .into_iter()
+                .map(|(internal_id, uri, inner)| ((internal_id, uri), inner))
+                .collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Hyperlinks, MAX_HYPERLINKS};

@@ -52,6 +52,8 @@ mod handler;
 #[cfg(any(unix, windows))]
 #[cfg_attr(windows, allow(dead_code))]
 mod handler_support;
+// The live-handover state format (docs/design/live-handover.md).
+mod handover;
 #[cfg(any(unix, windows))]
 #[cfg_attr(windows, allow(dead_code))]
 mod hook_compat;

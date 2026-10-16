@@ -4,6 +4,8 @@ use crate::{Pane, PaneGeometry};
 
 #[path = "layout/cell.rs"]
 mod cell;
+#[path = "layout/handover.rs"]
+mod handover;
 #[path = "layout/mutation.rs"]
 mod mutation;
 #[path = "layout/named.rs"]

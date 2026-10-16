@@ -7,6 +7,8 @@ use rmux_proto::{
 
 #[path = "options/access.rs"]
 mod access;
+#[path = "options/handover.rs"]
+mod handover;
 #[path = "options/mutation.rs"]
 mod mutation;
 #[path = "options/registry.rs"]

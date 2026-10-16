@@ -773,6 +773,63 @@ fn visible_revision_reuse_map(previous: &[u64], next: &[u64]) -> Option<Vec<Opti
     Some(map)
 }
 
+// Handover conversion (docs/design/live-handover.md).
+// Phase 3 of the handover (the resume runtime) is the caller; until then
+// only the tests are.
+#[cfg_attr(not(test), allow(dead_code))]
+impl PaneTranscript {
+    pub(crate) fn to_handover(&self) -> crate::handover::TranscriptV1 {
+        let Self {
+            terminal,
+            // Not carried: copy mode, clock mode and mode trees. A handover
+            // leaves them, as a detach would leave a client's view; carrying
+            // them would mean freezing copy mode's internals into the format.
+            mode: _,
+            // A change counter for the mode above, which restarts with it.
+            mode_revision: _,
+            output_sequence,
+            // Clock-mode bookkeeping, meaningless without clock mode.
+            next_clock_generation: _,
+            // The ground timer is an `Instant`, which means nothing in another
+            // process. The restored parser still knows it is mid-sequence, and
+            // the timer starts again with the pane's next output.
+            ground_timer_started_at: _,
+            ground_timer_token: _,
+            // OSC 4 queries waiting for an attached terminal's answer. The
+            // terminal is detached by the handover, so no answer will come.
+            pending_palette_queries: _,
+            // A test-only copy of the terminal's own UTF-8 configuration.
+            #[cfg(test)]
+                utf8_config: _,
+        } = self;
+        crate::handover::TranscriptV1 {
+            terminal: terminal.to_handover(),
+            output_sequence: *output_sequence,
+        }
+    }
+
+    pub(crate) fn from_handover(
+        dto: crate::handover::TranscriptV1,
+    ) -> Result<Self, rmux_core::handover::HandoverError> {
+        let crate::handover::TranscriptV1 {
+            terminal,
+            output_sequence,
+        } = dto;
+        Ok(Self {
+            terminal: TerminalScreen::from_handover(terminal)?,
+            mode: None,
+            mode_revision: 0,
+            output_sequence,
+            next_clock_generation: 1,
+            ground_timer_started_at: None,
+            ground_timer_token: 0,
+            pending_palette_queries: PendingPaletteQueries::default(),
+            #[cfg(test)]
+            utf8_config: Utf8Config::default(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{visible_revision_reuse_map, PaneTranscript};

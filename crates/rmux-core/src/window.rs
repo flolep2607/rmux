@@ -49,6 +49,14 @@ impl AlertFlags {
     pub fn remove(&mut self, other: Self) {
         self.0 &= !other.0;
     }
+
+    pub(crate) const fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub(crate) const fn from_bits(bits: u8) -> Self {
+        Self(bits)
+    }
 }
 
 /// Window alert queue bit for bells.
@@ -106,6 +114,8 @@ pub struct Window {
 
 #[path = "window/activity.rs"]
 mod activity;
+#[path = "window/handover.rs"]
+mod handover;
 #[path = "window/layout_cycle.rs"]
 mod layout_cycle;
 #[path = "window/layout_ops.rs"]

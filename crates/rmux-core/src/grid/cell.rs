@@ -1381,6 +1381,113 @@ const LINE_REVISION_GENERATION_BITS: u32 = 32;
 const LINE_REVISION_GENERATION_MASK: u64 = (1_u64 << LINE_REVISION_GENERATION_BITS) - 1;
 const LINE_REVISION_ID_MASK: u64 = !LINE_REVISION_GENERATION_MASK;
 
+// Handover conversions (docs/design/live-handover.md). Every field is named,
+// so a new one fails to compile here until the format decides about it.
+impl GridCell {
+    pub(crate) fn to_handover(&self) -> crate::handover::GridCellV1 {
+        let Self {
+            text,
+            width,
+            flags,
+            attr,
+            fg,
+            bg,
+            us,
+            link,
+        } = self;
+        crate::handover::GridCellV1 {
+            text: text.as_str().to_owned(),
+            width: *width,
+            flags: flags.bits(),
+            attr: *attr,
+            fg: *fg,
+            bg: *bg,
+            us: *us,
+            link: *link,
+        }
+    }
+
+    pub(crate) fn from_handover(dto: crate::handover::GridCellV1) -> Self {
+        let crate::handover::GridCellV1 {
+            text,
+            width,
+            flags,
+            attr,
+            fg,
+            bg,
+            us,
+            link,
+        } = dto;
+        Self {
+            // `CellText::new` picks the inline or extended form from the text,
+            // which is all the original choice depended on.
+            text: CellText::new(text),
+            width,
+            flags: GridCellFlags(flags),
+            attr,
+            fg,
+            bg,
+            us,
+            link,
+        }
+    }
+}
+
+impl GridLine {
+    pub(crate) fn to_handover(&self) -> crate::handover::GridLineV1 {
+        let Self {
+            cells,
+            plain_text,
+            width,
+            plain_text_data_end,
+            flags,
+            time,
+            // Not carried: a revision is a cache key for renderers in this
+            // process, drawn from a process-wide counter. The new process
+            // starts that counter again, so a carried value could collide with
+            // a fresh one; a fresh revision is always correct.
+            revision: _,
+        } = self;
+        crate::handover::GridLineV1 {
+            cells: cells.iter().map(GridCell::to_handover).collect(),
+            plain_text: plain_text.as_ref().map(|text| text.as_str().to_owned()),
+            width: *width,
+            plain_text_data_end: *plain_text_data_end,
+            flags: flags.bits(),
+            time: *time,
+        }
+    }
+
+    pub(crate) fn from_handover(
+        dto: crate::handover::GridLineV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        let crate::handover::GridLineV1 {
+            cells,
+            plain_text,
+            width,
+            plain_text_data_end,
+            flags,
+            time,
+        } = dto;
+        // The compact form is ASCII by construction, and the renderers index
+        // it by byte as a column.
+        if plain_text.as_ref().is_some_and(|text| !text.is_ascii()) {
+            return Err(crate::handover::HandoverError::new(
+                "a compact grid line holds non-ASCII text",
+            ));
+        }
+        Ok(Self {
+            cells: cells.into_iter().map(GridCell::from_handover).collect(),
+            plain_text: plain_text.map(CompactString::from),
+            width,
+            plain_text_data_end,
+            flags: GridLineFlags(flags),
+            time,
+            revision: next_line_revision(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{plain_text_capture_end, CellText, GridCell, GridLine};

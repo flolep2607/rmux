@@ -217,6 +217,7 @@ dependencies = [
  "chrono",
  "compact_str",
  "regex",
+ "serde",
  "unicode-width 0.1.14",
 ]
 

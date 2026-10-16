@@ -86,6 +86,54 @@ impl KittyScreens {
     }
 }
 
+// Handover conversion (docs/design/live-handover.md).
+impl KittyScreens {
+    pub(super) fn to_handover(
+        &self,
+    ) -> (
+        crate::handover::KittyKeyboardV1,
+        crate::handover::KittyKeyboardV1,
+    ) {
+        let Self { main, alternate } = self;
+        (main.to_handover(), alternate.to_handover())
+    }
+
+    pub(super) fn from_handover(
+        main: crate::handover::KittyKeyboardV1,
+        alternate: crate::handover::KittyKeyboardV1,
+    ) -> Self {
+        Self {
+            main: KittyKeyboard::from_handover(main),
+            alternate: KittyKeyboard::from_handover(alternate),
+        }
+    }
+}
+
+impl KittyKeyboard {
+    fn to_handover(&self) -> crate::handover::KittyKeyboardV1 {
+        let Self { flags, stack } = self;
+        crate::handover::KittyKeyboardV1 {
+            flags: *flags,
+            stack: stack.iter().copied().collect(),
+        }
+    }
+
+    fn from_handover(dto: crate::handover::KittyKeyboardV1) -> Self {
+        let crate::handover::KittyKeyboardV1 { flags, stack } = dto;
+        // Both bounds are what the parser itself enforces, so a state from a
+        // newer writer with a deeper stack or more flags is cut to what this
+        // one implements, the same answer it would give a program asking.
+        let mut stack: VecDeque<u8> = stack.into_iter().map(|flags| flags & SUPPORTED).collect();
+        while stack.len() > STACK_MAX {
+            stack.pop_front();
+        }
+        Self {
+            flags: flags & SUPPORTED,
+            stack,
+        }
+    }
+}
+
 /// Change the negotiation the pane's current screen is under, and put the
 /// result in force.
 ///
