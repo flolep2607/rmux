@@ -1,6 +1,6 @@
 [package]
 name = "cctop-rmux-core"
-version = "0.10.1"
+version = "0.10.2"
 edition.workspace = true
 publish = true
 license.workspace = true

@@ -374,6 +374,26 @@ impl FormatVariables for RuntimeFormatContext<'_> {
             "pane_lifecycle_generation" | "pane_generation" => self.pane_lifecycle_generation(),
             "pane_lifecycle_revision" | "pane_revision" => self.pane_lifecycle_revision(),
             "pane_output_sequence" => self.pane_output_sequence(),
+            // OSC 7501: the root record only. Child records (reports with an
+            // `id`) are kept but not shown yet.
+            "pane_program_state" => {
+                self.pane_program_field(|record| Some(record.state().as_str().to_owned()))
+            }
+            "pane_program_kind" => self.pane_program_field(|record| {
+                record.kind().map(|kind| kind.as_str().to_owned())
+            }),
+            "pane_program_progress" => {
+                self.pane_program_field(|record| record.progress().map(|p| p.to_string()))
+            }
+            "pane_program_app" => {
+                self.pane_program_field(|record| record.app().map(str::to_owned))
+            }
+            "pane_program_title" => {
+                self.pane_program_field(|record| record.title().map(str::to_owned))
+            }
+            "pane_program_msg" => {
+                self.pane_program_field(|record| record.msg().map(str::to_owned))
+            }
             "pane_pid" => self.pane_pid(),
             "pane_pipe" => self.pane_pipe(),
             "pane_right" => self.visible_pane_geometry().map(|geometry| {

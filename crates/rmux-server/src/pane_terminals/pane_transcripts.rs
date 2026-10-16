@@ -424,6 +424,44 @@ impl HandlerState {
         self.transcripts.get(&runtime_session_name)?.get(&pane_id)
     }
 
+    /// The OSC 7501 root record of a pane, for the `pane_program_*` formats.
+    pub(crate) fn pane_program_status(
+        &self,
+        session_name: &SessionName,
+        pane_id: PaneId,
+    ) -> Option<rmux_core::ProgramStatusRecord> {
+        let window_index = self
+            .sessions
+            .session(session_name)?
+            .window_index_for_pane_id(pane_id)?;
+        let runtime_session_name = self.runtime_session_name_for_window(session_name, window_index);
+        let transcript = self.transcripts.get(&runtime_session_name)?.get(&pane_id)?;
+        transcript
+            .lock()
+            .expect("pane transcript mutex must not be poisoned")
+            .program_status_root()
+    }
+
+    /// Drops the status records a pane's program can no longer resolve, once
+    /// its process has exited. The pane itself may stay, under
+    /// `remain-on-exit`, and must not go on saying its program is working.
+    pub(crate) fn mark_runtime_pane_program_exited(
+        &self,
+        runtime_session_name: &SessionName,
+        pane_id: PaneId,
+    ) {
+        if let Some(transcript) = self
+            .transcripts
+            .get(runtime_session_name)
+            .and_then(|panes| panes.get(&pane_id))
+        {
+            transcript
+                .lock()
+                .expect("pane transcript mutex must not be poisoned")
+                .program_exited();
+        }
+    }
+
     pub(crate) fn pane_output_sequence(
         &self,
         session_name: &SessionName,

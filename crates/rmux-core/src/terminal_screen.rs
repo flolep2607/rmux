@@ -159,6 +159,19 @@ impl TerminalScreen {
         self.parser.dynamic_colour(slot)
     }
 
+    /// The OSC 7501 program status records the pane's program has reported.
+    #[must_use]
+    pub fn program_status(&self) -> &crate::program_status::ProgramStatusRecords {
+        self.parser.program_status()
+    }
+
+    /// Tells the parser the pane's process has exited, which drops the status
+    /// records only a running program could resolve (working, blocked, idle)
+    /// and keeps its results (done, error).
+    pub fn program_exited(&mut self) {
+        self.parser.program_exited();
+    }
+
     /// Returns whether the parser ground timeout is currently armed.
     #[must_use]
     pub fn ground_timer_active(&self) -> bool {

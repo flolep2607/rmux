@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "cctop-rmux-core"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "cctop-rmux-proto",
  "chrono",
@@ -282,7 +282,7 @@ dependencies = [
 
 [[package]]
 name = "cctop-rmux-server"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "async-recursion",
  "base64",
