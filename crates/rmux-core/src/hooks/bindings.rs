@@ -217,3 +217,70 @@ struct RegisteredHook {
     command: String,
     lifecycle: HookLifecycle,
 }
+
+// Handover conversion (docs/design/live-handover.md). Hooks go by their
+// tmux-visible names, which `show-hooks` and every config file already fix.
+impl HookBindings {
+    pub(super) fn to_handover(&self) -> crate::handover::HookBindingsV1 {
+        let Self { hooks } = self;
+        let mut hooks: Vec<_> = hooks
+            .iter()
+            .map(|(name, array)| {
+                let HookArray { entries } = array;
+                (
+                    name.as_str().to_owned(),
+                    entries
+                        .iter()
+                        .map(|(index, registered)| {
+                            let RegisteredHook { command, lifecycle } = registered;
+                            let one_shot = match lifecycle {
+                                HookLifecycle::Persistent => false,
+                                HookLifecycle::OneShot => true,
+                            };
+                            crate::handover::HookEntryV1 {
+                                index: *index,
+                                command: command.clone(),
+                                one_shot,
+                            }
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+        hooks.sort_by(|left, right| left.0.cmp(&right.0));
+        crate::handover::HookBindingsV1 { hooks }
+    }
+
+    pub(super) fn from_handover(
+        dto: crate::handover::HookBindingsV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        let crate::handover::HookBindingsV1 { hooks } = dto;
+        Ok(Self {
+            hooks: hooks
+                .into_iter()
+                .map(|(name, entries)| {
+                    let hook = HookName::from_str_opt(&name).ok_or_else(|| {
+                        crate::handover::HandoverError::new(format!("unknown hook {name:?}"))
+                    })?;
+                    let entries = entries
+                        .into_iter()
+                        .map(|entry| {
+                            let crate::handover::HookEntryV1 {
+                                index,
+                                command,
+                                one_shot,
+                            } = entry;
+                            let lifecycle = if one_shot {
+                                HookLifecycle::OneShot
+                            } else {
+                                HookLifecycle::Persistent
+                            };
+                            (index, RegisteredHook { command, lifecycle })
+                        })
+                        .collect();
+                    Ok((hook, HookArray { entries }))
+                })
+                .collect::<Result<_, crate::handover::HandoverError>>()?,
+        })
+    }
+}

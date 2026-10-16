@@ -11,6 +11,8 @@ use rmux_proto::TerminalSize;
 mod acs;
 #[path = "screen/capture.rs"]
 mod capture;
+#[path = "screen/handover.rs"]
+mod handover;
 #[path = "screen/history_bytes.rs"]
 mod history_bytes;
 #[path = "screen/selection.rs"]

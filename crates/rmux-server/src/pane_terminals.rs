@@ -30,6 +30,8 @@ mod applied_window_resize;
 #[cfg(windows)]
 #[path = "pane_terminals/deferred_initial.rs"]
 mod deferred_initial;
+#[path = "pane_terminals/handover.rs"]
+mod handover;
 #[path = "pane_terminals/lifecycle_state.rs"]
 mod lifecycle_state;
 #[path = "pane_terminals/marked_pane.rs"]

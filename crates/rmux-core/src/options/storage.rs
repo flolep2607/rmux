@@ -224,3 +224,172 @@ fn render_array(items: &BTreeMap<u32, ArrayItem>, separator: &str) -> String {
         .collect::<Vec<_>>()
         .join(separator)
 }
+
+// Handover conversions (docs/design/live-handover.md).
+//
+// An entry's type is not carried: it comes from the reading binary's own
+// registry, looked up by the canonical name, because the registry is static
+// data (`Choice` holds `&'static` lists) that only the reader has. A value
+// whose kind no longer matches its option's type is refused rather than
+// coerced.
+impl OptionNode {
+    pub(super) fn to_handover(&self) -> crate::handover::OptionNodeV1 {
+        let Self { entries } = self;
+        crate::handover::OptionNodeV1 {
+            entries: entries
+                .iter()
+                .map(|(key, entry)| (key.clone(), entry.to_handover()))
+                .collect(),
+        }
+    }
+
+    pub(super) fn from_handover(
+        dto: crate::handover::OptionNodeV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        let crate::handover::OptionNodeV1 { entries } = dto;
+        Ok(Self {
+            entries: entries
+                .into_iter()
+                .map(|(key, entry)| Ok((key, OptionEntry::from_handover(entry)?)))
+                .collect::<Result<_, crate::handover::HandoverError>>()?,
+        })
+    }
+}
+
+impl OptionEntry {
+    fn to_handover(&self) -> crate::handover::OptionEntryV1 {
+        let Self {
+            name,
+            known_option,
+            scope,
+            // Not carried: looked up again on restore (see above).
+            value_type: _,
+            value,
+            rendered,
+        } = self;
+        crate::handover::OptionEntryV1 {
+            name: name.clone(),
+            known: known_option.is_some(),
+            scope: crate::handover::option_scope_to_handover(scope),
+            value: match value {
+                OptionEntryValue::Scalar(value) => {
+                    crate::handover::OptionValueV1::Scalar(value.to_handover())
+                }
+                OptionEntryValue::Array(items) => crate::handover::OptionValueV1::Array(
+                    items
+                        .iter()
+                        .map(|(index, item)| {
+                            let ArrayItem { value, rendered } = item;
+                            (*index, value.to_handover(), rendered.clone())
+                        })
+                        .collect(),
+                ),
+            },
+            rendered: rendered.clone(),
+        }
+    }
+
+    fn from_handover(
+        dto: crate::handover::OptionEntryV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        use crate::handover::HandoverError;
+
+        let crate::handover::OptionEntryV1 {
+            name,
+            known,
+            scope,
+            value,
+            rendered,
+        } = dto;
+        let query = super::registry::resolve_exact_option_name(&name)
+            .map_err(|_| HandoverError::new(format!("unknown option {name:?}")))?;
+        let known_option = query.known_option();
+        if known_option.is_some() != known || query.canonical_name() != name {
+            return Err(HandoverError::new(format!(
+                "option {name:?} is not the option it was"
+            )));
+        }
+        let value_type = query.value_type();
+        let check = |value: StoredOptionValue| {
+            if value.fits(value_type) {
+                Ok(value)
+            } else {
+                Err(HandoverError::new(format!(
+                    "option {name:?} holds a value of another type"
+                )))
+            }
+        };
+        let value = match value {
+            crate::handover::OptionValueV1::Scalar(value) => {
+                OptionEntryValue::Scalar(check(StoredOptionValue::from_handover(value)?)?)
+            }
+            crate::handover::OptionValueV1::Array(items) => OptionEntryValue::Array(
+                items
+                    .into_iter()
+                    .map(|(index, value, rendered)| {
+                        Ok((
+                            index,
+                            ArrayItem {
+                                value: check(StoredOptionValue::from_handover(value)?)?,
+                                rendered,
+                            },
+                        ))
+                    })
+                    .collect::<Result<_, HandoverError>>()?,
+            ),
+        };
+        Ok(Self {
+            name: name.clone(),
+            known_option,
+            scope: crate::handover::option_scope_from_handover(&scope)?,
+            value_type,
+            value,
+            rendered,
+        })
+    }
+}
+
+impl StoredOptionValue {
+    fn to_handover(&self) -> crate::handover::StoredOptionValueV1 {
+        use crate::handover::StoredOptionValueV1 as V1;
+        match self {
+            Self::String(value) => V1::String(value.clone()),
+            Self::Number(value) => V1::Number(*value),
+            Self::Key(value) => V1::Key(value.clone()),
+            Self::Colour(value) => V1::Colour(value.clone()),
+            Self::Flag(value) => V1::Flag(*value),
+            Self::Choice(value) => V1::Choice(value.clone()),
+            Self::Command(commands) => V1::Command(commands.to_handover()),
+        }
+    }
+
+    fn from_handover(
+        dto: crate::handover::StoredOptionValueV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        use crate::handover::StoredOptionValueV1 as V1;
+        Ok(match dto {
+            V1::String(value) => Self::String(value),
+            V1::Number(value) => Self::Number(value),
+            V1::Key(value) => Self::Key(value),
+            V1::Colour(value) => Self::Colour(value),
+            V1::Flag(value) => Self::Flag(value),
+            V1::Choice(value) => Self::Choice(value),
+            V1::Command(commands) => Self::Command(ParsedCommands::from_handover(commands)?),
+        })
+    }
+
+    /// Whether this is the kind of value `value_type` stores, as
+    /// `options/mutation.rs` would have produced it.
+    fn fits(&self, value_type: OptionValueType) -> bool {
+        matches!(
+            (self, value_type),
+            (Self::String(_), OptionValueType::String)
+                | (Self::Number(_), OptionValueType::Number { .. })
+                | (Self::Key(_), OptionValueType::Key)
+                | (Self::Colour(_), OptionValueType::Colour)
+                | (Self::Flag(_), OptionValueType::Flag)
+                | (Self::Choice(_), OptionValueType::Choice(_))
+                | (Self::Command(_), OptionValueType::Command)
+        )
+    }
+}

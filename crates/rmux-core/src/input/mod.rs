@@ -10,6 +10,7 @@ mod colour;
 mod commands;
 mod csi_helpers;
 mod dispatch;
+pub(crate) mod handover;
 mod kitty;
 pub mod mode;
 mod params;

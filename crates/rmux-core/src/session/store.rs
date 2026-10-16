@@ -645,3 +645,82 @@ impl SessionStore {
         self.group_runtime_owners.insert(group_name, owner);
     }
 }
+
+// Handover conversion (docs/design/live-handover.md).
+impl SessionStore {
+    /// The whole session tree as handover data.
+    #[must_use]
+    pub fn to_handover(&self) -> crate::handover::SessionStoreV1 {
+        let Self {
+            sessions,
+            next_session_id,
+            next_pane_id,
+            next_window_id,
+            group_runtime_owners,
+        } = self;
+        let mut sessions: Vec<_> = sessions.values().map(Session::to_handover).collect();
+        // Hash order would make two encodings of one state differ.
+        sessions.sort_by(|left, right| left.name.cmp(&right.name));
+        let mut group_runtime_owners: Vec<_> = group_runtime_owners
+            .iter()
+            .map(|(group, owner)| (group.as_str().to_owned(), owner.as_str().to_owned()))
+            .collect();
+        group_runtime_owners.sort();
+        crate::handover::SessionStoreV1 {
+            sessions,
+            next_session_id: *next_session_id,
+            next_pane_id: *next_pane_id,
+            next_window_id: next_window_id.peek(),
+            group_runtime_owners,
+        }
+    }
+
+    /// Rebuilds the session tree from handover data.
+    ///
+    /// Recency tokens are process-local, so fresh ones are minted here in the
+    /// order the old ones had, which is all any reader compares.
+    pub fn from_handover(
+        dto: crate::handover::SessionStoreV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        use crate::handover::{session_name, HandoverError};
+
+        let crate::handover::SessionStoreV1 {
+            mut sessions,
+            next_session_id,
+            next_pane_id,
+            next_window_id,
+            group_runtime_owners,
+        } = dto;
+        sessions.sort_by_key(|session| session.recency);
+        let allocator = WindowIdAllocator::new(next_window_id);
+        let mut restored = HashMap::with_capacity(sessions.len());
+        let mut ids = std::collections::HashSet::with_capacity(sessions.len());
+        for session in sessions {
+            let mut session = Session::from_handover(session, super::SessionRecency::next())?;
+            session.rebind_window_id_allocator(allocator.clone());
+            if !ids.insert(session.id()) {
+                return Err(HandoverError::new(format!(
+                    "two sessions share the id {}",
+                    session.id()
+                )));
+            }
+            let name = session.name().clone();
+            if restored.insert(name.clone(), session).is_some() {
+                return Err(HandoverError::new(format!(
+                    "two sessions share the name {name}"
+                )));
+            }
+        }
+        let group_runtime_owners = group_runtime_owners
+            .into_iter()
+            .map(|(group, owner)| Ok((session_name(&group)?, session_name(&owner)?)))
+            .collect::<Result<HashMap<_, _>, HandoverError>>()?;
+        Ok(Self {
+            sessions: restored,
+            next_session_id,
+            next_pane_id,
+            next_window_id: allocator,
+            group_runtime_owners,
+        })
+    }
+}

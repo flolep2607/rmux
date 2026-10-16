@@ -1085,6 +1085,146 @@ fn dollar_starts_variable(ch: char) -> bool {
     ch == '{' || ch == '_' || ch.is_ascii_alphabetic()
 }
 
+// Handover conversion (docs/design/live-handover.md). A command list is
+// carried parsed, as it is held, rather than as text to parse again: the
+// printed form is for people, and nothing promises it parses back to the same
+// list.
+impl ParsedCommands {
+    pub(crate) fn to_handover(&self) -> crate::handover::ParsedCommandsV1 {
+        let Self {
+            commands,
+            assignments,
+            grouping,
+        } = self;
+        crate::handover::ParsedCommandsV1 {
+            commands: commands
+                .iter()
+                .map(|command| {
+                    let ParsedCommand {
+                        name,
+                        arguments,
+                        start_line,
+                        line,
+                    } = command;
+                    crate::handover::ParsedCommandV1 {
+                        name: name.clone(),
+                        arguments: arguments
+                            .iter()
+                            .map(|argument| match argument {
+                                CommandArgument::String(value) => {
+                                    crate::handover::CommandArgumentV1::String(value.clone())
+                                }
+                                CommandArgument::Commands(commands) => {
+                                    crate::handover::CommandArgumentV1::Commands(
+                                        commands.to_handover(),
+                                    )
+                                }
+                            })
+                            .collect(),
+                        start_line: *start_line as u64,
+                        line: *line as u64,
+                    }
+                })
+                .collect(),
+            assignments: assignments
+                .iter()
+                .map(|assignment| {
+                    let EnvironmentAssignment {
+                        name,
+                        value,
+                        hidden,
+                    } = assignment;
+                    crate::handover::EnvironmentAssignmentV1 {
+                        name: name.clone(),
+                        value: value.clone(),
+                        hidden: *hidden,
+                    }
+                })
+                .collect(),
+            // Exhaustive, so a third grouping fails to compile here.
+            one_group: match grouping {
+                CommandGrouping::ByLine => false,
+                CommandGrouping::OneGroup => true,
+            },
+        }
+    }
+
+    pub(crate) fn from_handover(
+        dto: crate::handover::ParsedCommandsV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        Self::from_handover_at(dto, 0)
+    }
+
+    fn from_handover_at(
+        dto: crate::handover::ParsedCommandsV1,
+        depth: usize,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        use crate::handover::{to_usize, CommandArgumentV1, HandoverError};
+
+        // Far beyond any brace nesting a person writes; the bound keeps a
+        // damaged state from recursing off the stack.
+        const MAX_DEPTH: usize = 64;
+        if depth > MAX_DEPTH {
+            return Err(HandoverError::new("command list is nested too deep"));
+        }
+        let crate::handover::ParsedCommandsV1 {
+            commands,
+            assignments,
+            one_group,
+        } = dto;
+        let commands = commands
+            .into_iter()
+            .map(|command| {
+                let crate::handover::ParsedCommandV1 {
+                    name,
+                    arguments,
+                    start_line,
+                    line,
+                } = command;
+                Ok(ParsedCommand {
+                    name,
+                    arguments: arguments
+                        .into_iter()
+                        .map(|argument| {
+                            Ok(match argument {
+                                CommandArgumentV1::String(value) => CommandArgument::String(value),
+                                CommandArgumentV1::Commands(commands) => CommandArgument::Commands(
+                                    Self::from_handover_at(commands, depth + 1)?,
+                                ),
+                            })
+                        })
+                        .collect::<Result<_, HandoverError>>()?,
+                    start_line: to_usize(start_line, "command line")?,
+                    line: to_usize(line, "command line")?,
+                })
+            })
+            .collect::<Result<_, HandoverError>>()?;
+        Ok(Self {
+            commands,
+            assignments: assignments
+                .into_iter()
+                .map(|assignment| {
+                    let crate::handover::EnvironmentAssignmentV1 {
+                        name,
+                        value,
+                        hidden,
+                    } = assignment;
+                    EnvironmentAssignment {
+                        name,
+                        value,
+                        hidden,
+                    }
+                })
+                .collect(),
+            grouping: if one_group {
+                CommandGrouping::OneGroup
+            } else {
+                CommandGrouping::ByLine
+            },
+        })
+    }
+}
+
 #[cfg(test)]
 #[path = "command_parser/tests.rs"]
 mod tests;

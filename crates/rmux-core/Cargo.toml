@@ -24,4 +24,7 @@ chrono = { version = "0.4.42", default-features = false, features = ["clock", "s
 compact_str = "0.8.1"
 regex = "1.12.2"
 rmux-proto = { workspace = true }
+# Only for the handover DTOs (src/handover.rs). rmux-proto already brings
+# serde into every build of this crate, so this adds no dependency.
+serde = { version = "1", features = ["derive"] }
 unicode-width = "0.1"

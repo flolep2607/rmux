@@ -605,3 +605,109 @@ fn parse_bind_command(
         commands,
     ))
 }
+
+// Handover conversion (docs/design/live-handover.md). The tables go across
+// whole, defaults included: the defaults are the reader's `unbind -a` and
+// `list-keys -N` answer, and they are the writer's, not whatever the reader
+// would build.
+impl KeyBindingStore {
+    /// The key tables as handover data.
+    #[must_use]
+    pub fn to_handover(&self) -> crate::handover::KeyBindingStoreV1 {
+        fn bindings(map: &BTreeMap<KeyCode, KeyBinding>) -> Vec<crate::handover::KeyBindingV1> {
+            map.values()
+                .map(|binding| {
+                    let KeyBinding {
+                        key,
+                        note,
+                        repeat,
+                        commands,
+                    } = binding;
+                    crate::handover::KeyBindingV1 {
+                        key: *key,
+                        note: note.clone(),
+                        repeat: *repeat,
+                        commands: commands.to_handover(),
+                    }
+                })
+                .collect()
+        }
+
+        let Self { tables } = self;
+        crate::handover::KeyBindingStoreV1 {
+            tables: tables
+                .values()
+                .map(|table| {
+                    let KeyBindingTable {
+                        name,
+                        references,
+                        active,
+                        defaults,
+                    } = table;
+                    crate::handover::KeyBindingTableV1 {
+                        name: name.clone(),
+                        references: *references as u64,
+                        active: bindings(active),
+                        defaults: bindings(defaults),
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    /// Rebuilds the key tables from handover data.
+    pub fn from_handover(
+        dto: crate::handover::KeyBindingStoreV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        use crate::handover::{to_usize, HandoverError};
+
+        fn bindings(
+            bindings: Vec<crate::handover::KeyBindingV1>,
+        ) -> Result<BTreeMap<KeyCode, KeyBinding>, HandoverError> {
+            bindings
+                .into_iter()
+                .map(|binding| {
+                    let crate::handover::KeyBindingV1 {
+                        key,
+                        note,
+                        repeat,
+                        commands,
+                    } = binding;
+                    Ok((
+                        key,
+                        KeyBinding {
+                            key,
+                            note,
+                            repeat,
+                            commands: ParsedCommands::from_handover(commands)?,
+                        },
+                    ))
+                })
+                .collect()
+        }
+
+        let crate::handover::KeyBindingStoreV1 { tables } = dto;
+        Ok(Self {
+            tables: tables
+                .into_iter()
+                .map(|table| {
+                    let crate::handover::KeyBindingTableV1 {
+                        name,
+                        references,
+                        active,
+                        defaults,
+                    } = table;
+                    Ok((
+                        name.clone(),
+                        KeyBindingTable {
+                            name,
+                            references: to_usize(references, "key table references")?,
+                            active: bindings(active)?,
+                            defaults: bindings(defaults)?,
+                        },
+                    ))
+                })
+                .collect::<Result<_, HandoverError>>()?,
+        })
+    }
+}

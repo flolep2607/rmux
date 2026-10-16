@@ -425,6 +425,158 @@ fn percent_encode(bytes: &[u8]) -> String {
     encoded
 }
 
+// Handover conversion (docs/design/live-handover.md).
+// Phase 3 of the handover (the resume runtime) is the caller; until then
+// only the tests are.
+#[cfg_attr(not(test), allow(dead_code))]
+impl PaneLifecycleState {
+    pub(in crate::pane_terminals) fn to_handover(
+        &self,
+    ) -> Result<crate::handover::PaneLifecycleV1, rmux_core::handover::HandoverError> {
+        use std::os::unix::ffi::OsStrExt;
+
+        let Self {
+            session_id,
+            window_id,
+            pane_id,
+            command,
+            process_command,
+            working_directory,
+            respawn_shell,
+            private_environment,
+            respawn_environment,
+            tags,
+            dimensions,
+            process,
+            generation,
+            revision,
+            output_sequence,
+            exit_state,
+        } = self;
+        let TerminalSize { cols, rows } = *dimensions;
+        let process_command = process_command
+            .as_ref()
+            .map(|command| match command {
+                ProcessCommand::Argv(argv) => {
+                    Ok(crate::handover::ProcessCommandV1::Argv(argv.clone()))
+                }
+                ProcessCommand::Shell(text) => {
+                    Ok(crate::handover::ProcessCommandV1::Shell(text.clone()))
+                }
+                // `ProcessCommand` is non-exhaustive, so a new kind cannot
+                // fail to compile here; it refuses the handover instead of
+                // being respawned as something else.
+                _ => Err(rmux_core::handover::HandoverError::new(
+                    "a pane was started by a kind of command the handover does not carry",
+                )),
+            })
+            .transpose()?;
+        Ok(crate::handover::PaneLifecycleV1 {
+            session_id: session_id.as_u32(),
+            window_id: window_id.as_u32(),
+            pane_id: pane_id.as_u32(),
+            command: command.clone(),
+            process_command,
+            working_directory: working_directory
+                .as_ref()
+                .map(|path| path.as_os_str().as_bytes().to_vec()),
+            respawn_shell: respawn_shell.as_os_str().as_bytes().to_vec(),
+            private_environment: private_environment.to_vec(),
+            respawn_environment: respawn_environment.to_vec(),
+            tags: tags.clone(),
+            cols,
+            rows,
+            process: match process {
+                PaneLifecycleProcessState::Unknown => crate::handover::LifecycleProcessV1::Unknown,
+                #[cfg(windows)]
+                PaneLifecycleProcessState::Starting => crate::handover::LifecycleProcessV1::Unknown,
+                PaneLifecycleProcessState::Running { pid } => {
+                    crate::handover::LifecycleProcessV1::Running { pid: *pid }
+                }
+                PaneLifecycleProcessState::Exited => crate::handover::LifecycleProcessV1::Exited,
+            },
+            generation: *generation,
+            revision: *revision,
+            output_sequence: *output_sequence,
+            exit_state: exit_state.map(|exit| {
+                let PaneLifecycleExitState {
+                    status,
+                    signal,
+                    time,
+                } = exit;
+                crate::handover::ExitDetailsV1 {
+                    status,
+                    signal,
+                    time,
+                }
+            }),
+        })
+    }
+
+    pub(in crate::pane_terminals) fn from_handover(dto: crate::handover::PaneLifecycleV1) -> Self {
+        use std::os::unix::ffi::OsStringExt;
+
+        let crate::handover::PaneLifecycleV1 {
+            session_id,
+            window_id,
+            pane_id,
+            command,
+            process_command,
+            working_directory,
+            respawn_shell,
+            private_environment,
+            respawn_environment,
+            tags,
+            cols,
+            rows,
+            process,
+            generation,
+            revision,
+            output_sequence,
+            exit_state,
+        } = dto;
+        let path = |bytes: Vec<u8>| PathBuf::from(std::ffi::OsString::from_vec(bytes));
+        Self {
+            session_id: SessionId::new(session_id),
+            window_id: WindowId::new(window_id),
+            pane_id: PaneId::new(pane_id),
+            command,
+            process_command: process_command.map(|command| match command {
+                crate::handover::ProcessCommandV1::Argv(argv) => ProcessCommand::Argv(argv),
+                crate::handover::ProcessCommandV1::Shell(text) => ProcessCommand::Shell(text),
+            }),
+            working_directory: working_directory.map(path),
+            respawn_shell: path(respawn_shell),
+            private_environment: PrivatePaneEnvironment(private_environment),
+            respawn_environment: PrivatePaneEnvironment(respawn_environment),
+            tags,
+            dimensions: TerminalSize { cols, rows },
+            process: match process {
+                crate::handover::LifecycleProcessV1::Unknown => PaneLifecycleProcessState::Unknown,
+                crate::handover::LifecycleProcessV1::Running { pid } => {
+                    PaneLifecycleProcessState::Running { pid }
+                }
+                crate::handover::LifecycleProcessV1::Exited => PaneLifecycleProcessState::Exited,
+            },
+            generation,
+            revision,
+            output_sequence,
+            exit_state: exit_state.map(|exit| {
+                let crate::handover::ExitDetailsV1 {
+                    status,
+                    signal,
+                    time,
+                } = exit;
+                PaneLifecycleExitState {
+                    status,
+                    signal,
+                    time,
+                }
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{encode_command_field, terminal_size_from_geometry};

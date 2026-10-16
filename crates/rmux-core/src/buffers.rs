@@ -448,6 +448,76 @@ fn buffer_preview(content: &[u8]) -> String {
     encode_buffer_sample(content)
 }
 
+// Handover conversion (docs/design/live-handover.md).
+impl BufferStore {
+    /// The paste buffers as handover data.
+    #[must_use]
+    pub fn to_handover(&self) -> crate::handover::BufferStoreV1 {
+        let Self {
+            buffers,
+            next_unnamed_id,
+            next_order,
+        } = self;
+        crate::handover::BufferStoreV1 {
+            buffers: buffers
+                .iter()
+                .map(|(name, entry)| {
+                    let BufferEntry {
+                        content,
+                        order,
+                        created,
+                        unnamed,
+                    } = entry;
+                    crate::handover::BufferV1 {
+                        name: name.clone(),
+                        content: content.clone(),
+                        order: *order,
+                        created: *created,
+                        unnamed: *unnamed,
+                    }
+                })
+                .collect(),
+            next_unnamed_id: *next_unnamed_id,
+            next_order: *next_order,
+        }
+    }
+
+    /// Rebuilds the paste buffers from handover data.
+    #[must_use]
+    pub fn from_handover(dto: crate::handover::BufferStoreV1) -> Self {
+        let crate::handover::BufferStoreV1 {
+            buffers,
+            next_unnamed_id,
+            next_order,
+        } = dto;
+        Self {
+            buffers: buffers
+                .into_iter()
+                .map(|buffer| {
+                    let crate::handover::BufferV1 {
+                        name,
+                        content,
+                        order,
+                        created,
+                        unnamed,
+                    } = buffer;
+                    (
+                        name,
+                        BufferEntry {
+                            content,
+                            order,
+                            created,
+                            unnamed,
+                        },
+                    )
+                })
+                .collect(),
+            next_unnamed_id,
+            next_order,
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "buffers/tests.rs"]
 mod tests;

@@ -540,6 +540,97 @@ fn decode_base64(input: &[u8]) -> Option<Vec<u8>> {
     (accumulator == 0).then_some(out)
 }
 
+// Handover conversion (docs/design/live-handover.md). States and kinds go by
+// their protocol names, which are fixed by the spec, rather than by enum
+// position.
+impl ProgramStatusRecords {
+    pub(crate) fn to_handover(&self) -> crate::handover::ProgramStatusRecordsV1 {
+        let Self { entries, clock } = self;
+        crate::handover::ProgramStatusRecordsV1 {
+            entries: entries
+                .iter()
+                .map(|entry| {
+                    let Entry {
+                        id,
+                        record,
+                        updated,
+                    } = entry;
+                    let ProgramStatusRecord {
+                        state,
+                        kind,
+                        progress,
+                        app,
+                        title,
+                        msg,
+                    } = record;
+                    crate::handover::ProgramStatusEntryV1 {
+                        id: id.clone(),
+                        state: state.as_str().to_owned(),
+                        kind: kind.map(|kind| kind.as_str().to_owned()),
+                        progress: *progress,
+                        app: app.clone(),
+                        title: title.clone(),
+                        msg: msg.clone(),
+                        updated: *updated,
+                    }
+                })
+                .collect(),
+            clock: *clock,
+        }
+    }
+
+    pub(crate) fn from_handover(
+        dto: crate::handover::ProgramStatusRecordsV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        let crate::handover::ProgramStatusRecordsV1 { entries, clock } = dto;
+        let entries = entries
+            .into_iter()
+            .map(|entry| {
+                let crate::handover::ProgramStatusEntryV1 {
+                    id,
+                    state,
+                    kind,
+                    progress,
+                    app,
+                    title,
+                    msg,
+                    updated,
+                } = entry;
+                let state = ProgramState::parse(&state).ok_or_else(|| {
+                    crate::handover::HandoverError::new(format!("unknown program state {state:?}"))
+                })?;
+                let kind = kind
+                    .map(|kind| {
+                        ProgramBlockedKind::parse(&kind).ok_or_else(|| {
+                            crate::handover::HandoverError::new(format!(
+                                "unknown program blocked kind {kind:?}"
+                            ))
+                        })
+                    })
+                    .transpose()?;
+                Ok(Entry {
+                    id,
+                    record: ProgramStatusRecord {
+                        state,
+                        kind,
+                        progress,
+                        app,
+                        title,
+                        msg,
+                    },
+                    updated,
+                })
+            })
+            .collect::<Result<Vec<_>, crate::handover::HandoverError>>()?;
+        if entries.len() > PROGRAM_STATUS_MAX_RECORDS {
+            return Err(crate::handover::HandoverError::new(
+                "more program status records than a pane keeps",
+            ));
+        }
+        Ok(Self { entries, clock })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

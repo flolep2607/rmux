@@ -1,6 +1,6 @@
 # Live handover: upgrading a running daemon without its panes noticing
 
-Status: design, with a feasibility prototype. Nothing here is implemented yet.
+Status: design, with a feasibility prototype. Phase 1 (the state format, §7) is implemented; nothing at runtime uses it yet.
 
 ## Why
 
@@ -647,6 +647,100 @@ Release: cctop-rmux-server and -core take a minor bump (new public API), and
 3. Then cctop 1–2 and 4 together, with 3 alongside.
 4. Wire-change support (rmux 6 and the cctop scan) can follow in a later
    release, but must land **before** the next `RMUX_WIRE_VERSION` bump.
+
+## 7. Phase 1, as built
+
+Steps 1 and 2 of the plan, the state format, are in. Nothing at runtime writes
+or reads it yet.
+
+**Where it lives.**
+- `rmux-core/src/handover.rs`: the DTOs for the terminal, the session tree and
+  the stores, with `to_handover` / `from_handover` beside each real type (for
+  example `grid/handover.rs`, `screen/handover.rs` and `options/handover.rs`).
+  Each sits in a child module of its type, so the type's fields stay private.
+- `rmux-server/src/handover.rs`: `HandoverStateV1`, the envelope, and what only
+  the server holds. `HandlerState::to_handover` and `restore_handover` are in
+  `pane_terminals/handover.rs`.
+
+**The envelope.** It is the magic `RMUXHAND`, then `u32` schema, then `u64`
+length, then a bincode payload (varint, trailing bytes refused). The schema is
+read before the payload. A schema not in `READABLE_SCHEMAS` is refused without
+being parsed, and so is a truncated blob or one with bytes after the payload.
+
+**Completeness.** Every conversion destructures its type with no `..`,
+`HandlerState` included, on both sides. A field added to any of them does not
+compile until the conversion carries it or names it as not carried, with the
+reason beside it. Enums go through exhaustive `match`es.
+`ProcessCommand` is `#[non_exhaustive]`, so capture returns a `Result`: a new
+kind of command refuses the handover rather than being dropped.
+
+**Carried beyond what §2.2 listed.**
+- A reaped child's raw wait status.
+- `termination_attempted`, the runtime window name and the `TerminalProfile`
+  (cwd, shell, raw environment) of each pane process.
+- Each session's base environment.
+- The reader generation per pane.
+- An attached client's last submitted line.
+- Parser replies not yet written back, the Kitty stacks of both screens, and
+  `input-buffer-size`, which is set before the replay because it bounds it.
+
+**Deliberately not carried, beyond §2.2.**
+- Line revisions: they come from a process-wide counter, and fresh ones are
+  always correct.
+- Recency tokens: they are re-minted in the order the old ones had.
+- `history_content_bytes`: it is recomputed.
+- Queued terminal passthrough events, pending OSC 4 palette queries and
+  attached terminals' pixel sizes: all of them are for clients.
+- Applied-resize notifications and the lifecycle commit order: quiesced, they
+  are empty.
+- Retained-target leases, pipes and status jobs: the leases are held by
+  in-flight commands, and pipes and jobs refuse the handover anyway.
+
+**Typed by the reader.** An option's type is not carried. The reading binary
+looks it up by name in its own registry, because `Choice` holds `&'static`
+lists. A known option the reader no longer has, or a value of a different kind,
+refuses the handover.
+
+**Measured** (debug build, 4 panes of 200 columns, a quarter of the lines
+styled, with wide characters):
+
+| State | Size | Capture | Encode | Decode | Restore | Pause |
+|---|---|---|---|---|---|---|
+| 50 000 history lines in total | 8.5 MiB | 126 ms | 621 ms | 783 ms | 212 ms | 1.74 s |
+| 4 × 50 000 (every pane full) | 33.8 MiB | 488 ms | 2.08 s | 2.97 s | 823 ms | 6.36 s |
+
+These are unoptimised numbers. serde and bincode are typically an order of
+magnitude faster in release, so the measurement should be repeated in release
+before phase 3 sets the snapshot deadline.
+
+**What changes for phases 2–4.**
+- A restored `HandlerState` cannot answer pane-level commands until its
+  terminals exist. `list-panes`, `capture-pane` and pane formats look up the
+  `PaneTerminal`. So resume must adopt every process (`restore_handover`
+  returns them with their fds) before it accepts a connection, and the
+  verify subprocess can restore but not query.
+- The parser resumes outside the ground state when a sequence was cut, and its
+  ground timer is an `Instant`. Resume should call the transcript's
+  ground-timer refresh for those panes, or they wait for their next output.
+- An unterminated string longer than `input-buffer-size` replays from its
+  first `input-buffer-size` bytes. That is what `since_ground` keeps, and the
+  parser discards beyond it anyway.
+- Writing the state takes the pause in §2.2 twice: once for the old daemon,
+  and again for the verify subprocess's decode. For a full worst case, verify
+  may want to run while the readers are still live, on a snapshot taken under
+  the lock.
+
+**Tests.**
+- Generated VT streams: 400 seeds, cut at any byte, restored, then fed the same
+  continuation. The streams compare the DTO, every observable and the replies.
+- Targeted cases: half-parsed sequences, REP, a large scrollback with an
+  alternate screen, and refused states.
+- A realistic daemon round trip, driven by real commands, compares the answers
+  to every query and capture.
+- The checked-in `schema-1.bin` fixture must decode, re-encode byte for byte,
+  restore, and give its recorded answers.
+- An unknown schema, truncation, trailing bytes and damaged payloads are each
+  refused without a panic.
 
 ## Risks
 

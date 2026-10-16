@@ -638,3 +638,62 @@ where
 
     Ok(())
 }
+
+// Handover conversion (docs/design/live-handover.md).
+// Phase 3 of the handover (the resume runtime) is the caller; until then
+// only the tests are.
+#[cfg_attr(not(test), allow(dead_code))]
+impl PaneTerminalStore {
+    /// Every pane process, as `(session, pane id, master fd, process)`, and
+    /// every session's base environment.
+    #[allow(clippy::type_complexity)]
+    pub(super) fn to_handover(
+        &self,
+    ) -> (
+        Vec<(String, u32, i32, crate::handover::PaneProcessV1)>,
+        Vec<(String, crate::handover::RawEnvironmentV1)>,
+    ) {
+        let Self {
+            sessions,
+            session_environments,
+            // A test hook.
+            #[cfg(test)]
+                fail_next_resizes: _,
+        } = self;
+        let mut processes: Vec<_> = sessions
+            .iter()
+            .flat_map(|(session, panes)| {
+                panes.iter().map(move |(pane_id, terminal)| {
+                    let (fd, process) = terminal.to_handover();
+                    (session.as_str().to_owned(), pane_id.as_u32(), fd, process)
+                })
+            })
+            .collect();
+        processes.sort_by(|left, right| (&left.0, left.1).cmp(&(&right.0, right.1)));
+        let mut environments: Vec<_> = session_environments
+            .iter()
+            .map(|(session, environment)| (session.as_str().to_owned(), environment.to_handover()))
+            .collect();
+        environments.sort_by(|left, right| left.0.cmp(&right.0));
+        (processes, environments)
+    }
+
+    /// Restores the session environments. The terminals themselves are
+    /// added by the resume runtime, which owns the inherited fds.
+    pub(super) fn restore_session_environments(
+        &mut self,
+        environments: Vec<(String, crate::handover::RawEnvironmentV1)>,
+    ) -> Result<(), rmux_core::handover::HandoverError> {
+        for (session, environment) in environments {
+            self.session_environments.insert(
+                rmux_core::handover::restore_session_name(&session)?,
+                crate::terminal::SessionBaseEnvironment::from_handover(environment),
+            );
+        }
+        Ok(())
+    }
+
+    pub(super) fn is_empty_for_handover(&self) -> bool {
+        self.sessions.is_empty() && self.session_environments.is_empty()
+    }
+}

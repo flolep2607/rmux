@@ -22,6 +22,7 @@ pub mod events;
 pub mod formats;
 mod glob;
 mod grid;
+pub mod handover;
 mod hooks;
 mod hyperlinks;
 pub mod identity;

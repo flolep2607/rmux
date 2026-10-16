@@ -171,6 +171,40 @@ impl PaneTerminal {
     }
 }
 
+// Handover conversion (docs/design/live-handover.md). Only the capture side
+// lives here: rebuilding a `PaneTerminal` needs the inherited fd and a child
+// adopted by pid, which is the resume runtime's (design §3, phase 3).
+// Phase 3 of the handover (the resume runtime) is the caller; until then
+// only the tests are.
+#[cfg_attr(not(test), allow(dead_code))]
+impl PaneTerminal {
+    /// The master's fd number and the process data. The fd itself is not
+    /// touched: the exec carries it, once phase 3 clears its `FD_CLOEXEC`.
+    pub(crate) fn to_handover(&self) -> (i32, crate::handover::PaneProcessV1) {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::process::ExitStatusExt;
+
+        let Self {
+            master,
+            child,
+            exit_status,
+            termination_attempted,
+            runtime_window_name,
+            profile,
+        } = self;
+        (
+            master.io().as_raw_fd(),
+            crate::handover::PaneProcessV1 {
+                pid: child.pid().as_u32(),
+                exit_status: exit_status.map(|status| status.into_raw()),
+                termination_attempted: *termination_attempted,
+                runtime_window_name: runtime_window_name.clone(),
+                profile: profile.to_handover(),
+            },
+        )
+    }
+}
+
 impl Drop for PaneTerminal {
     fn drop(&mut self) {
         self.terminate_with_bounded_grace();

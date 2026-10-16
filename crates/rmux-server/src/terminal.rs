@@ -802,6 +802,82 @@ fn spawn_hook_child(mut child: Command) -> io::Result<()> {
     Ok(())
 }
 
+// Phase 3 of the handover (the resume runtime) is the caller; until then
+// only the tests are.
+#[cfg_attr(not(test), allow(dead_code))]
+fn os_pairs_to_handover(pairs: &[(OsString, OsString)]) -> Vec<(Vec<u8>, Vec<u8>)> {
+    use std::os::unix::ffi::OsStrExt;
+    pairs
+        .iter()
+        .map(|(name, value)| (name.as_bytes().to_vec(), value.as_bytes().to_vec()))
+        .collect()
+}
+
+// Phase 3 of the handover (the resume runtime) is the caller; until then
+// only the tests are.
+#[cfg_attr(not(test), allow(dead_code))]
+fn os_pairs_from_handover(pairs: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(OsString, OsString)> {
+    use std::os::unix::ffi::OsStringExt;
+    pairs
+        .into_iter()
+        .map(|(name, value)| (OsString::from_vec(name), OsString::from_vec(value)))
+        .collect()
+}
+
+// Handover conversions (docs/design/live-handover.md). Environments are raw
+// bytes: a pane's environment need not be UTF-8, and it must come back as
+// it went.
+// Phase 3 of the handover (the resume runtime) is the caller; until then
+// only the tests are.
+#[cfg_attr(not(test), allow(dead_code))]
+impl TerminalProfile {
+    pub(crate) fn to_handover(&self) -> crate::handover::TerminalProfileV1 {
+        use std::os::unix::ffi::OsStrExt;
+        let Self {
+            cwd,
+            shell,
+            raw_environment,
+        } = self;
+        crate::handover::TerminalProfileV1 {
+            cwd: cwd.as_os_str().as_bytes().to_vec(),
+            shell: shell.as_os_str().as_bytes().to_vec(),
+            environment: os_pairs_to_handover(raw_environment),
+        }
+    }
+
+    // The resume runtime rebuilds each `PaneTerminal` with this.
+    #[allow(dead_code)]
+    pub(crate) fn from_handover(dto: crate::handover::TerminalProfileV1) -> Self {
+        use std::os::unix::ffi::OsStringExt;
+        let crate::handover::TerminalProfileV1 {
+            cwd,
+            shell,
+            environment,
+        } = dto;
+        Self {
+            cwd: PathBuf::from(OsString::from_vec(cwd)),
+            shell: PathBuf::from(OsString::from_vec(shell)),
+            raw_environment: Arc::new(os_pairs_from_handover(environment)),
+        }
+    }
+}
+
+// Phase 3 of the handover (the resume runtime) is the caller; until then
+// only the tests are.
+#[cfg_attr(not(test), allow(dead_code))]
+impl SessionBaseEnvironment {
+    pub(crate) fn to_handover(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let Self { raw_environment } = self;
+        os_pairs_to_handover(raw_environment)
+    }
+
+    pub(crate) fn from_handover(environment: Vec<(Vec<u8>, Vec<u8>)>) -> Self {
+        Self {
+            raw_environment: os_pairs_from_handover(environment),
+        }
+    }
+}
+
 #[cfg(test)]
 fn default_hook_command(command: String) -> io::Result<Command> {
     #[cfg(unix)]

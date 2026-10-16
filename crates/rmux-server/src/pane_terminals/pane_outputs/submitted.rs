@@ -13,6 +13,28 @@ pub(in crate::pane_terminals) struct AttachedSubmittedLine {
     text: String,
 }
 
+// Handover conversion (docs/design/live-handover.md).
+// Phase 3 of the handover (the resume runtime) is the caller; until then
+// only the tests are.
+#[cfg_attr(not(test), allow(dead_code))]
+impl AttachedSubmittedLine {
+    pub(in crate::pane_terminals) fn to_handover(&self) -> (u64, String) {
+        let Self { absolute_y, text } = self;
+        (*absolute_y as u64, text.clone())
+    }
+
+    pub(in crate::pane_terminals) fn from_handover(
+        (absolute_y, text): (u64, String),
+    ) -> Result<Self, rmux_core::handover::HandoverError> {
+        Ok(Self {
+            absolute_y: usize::try_from(absolute_y).map_err(|_| {
+                rmux_core::handover::HandoverError::new("submitted line row too large")
+            })?,
+            text,
+        })
+    }
+}
+
 impl HandlerState {
     pub(crate) fn capture_transcript_for_command(
         &mut self,

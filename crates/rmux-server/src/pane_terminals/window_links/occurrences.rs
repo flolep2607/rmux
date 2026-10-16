@@ -11,6 +11,13 @@ impl WindowLinkOccurrenceId {
         self.0
     }
 
+    /// Rebuilds an id carried by a handover, where it keeps its value so
+    /// every target that recorded it still names the same occurrence.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) const fn from_handover(value: u64) -> Self {
+        Self(value)
+    }
+
     #[cfg(test)]
     pub(crate) const fn new_for_test(value: u64) -> Self {
         Self(value)

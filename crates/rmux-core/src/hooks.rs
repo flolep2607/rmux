@@ -468,6 +468,184 @@ impl HookStore {
     }
 }
 
+// Handover conversion (docs/design/live-handover.md).
+impl HookStore {
+    /// The hooks at every scope as handover data.
+    #[must_use]
+    pub fn to_handover(&self) -> crate::handover::HookStoreV1 {
+        use crate::handover::{PaneTargetV1, WindowTargetV1};
+
+        fn sorted<K: Ord, V>(mut entries: Vec<(K, V)>) -> Vec<(K, V)> {
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            entries
+        }
+        fn window_key(target: &WindowTarget) -> (String, u32) {
+            (
+                target.session_name().as_str().to_owned(),
+                target.window_index(),
+            )
+        }
+        fn pane_key(target: &PaneTarget) -> (String, u32, u32) {
+            (
+                target.session_name().as_str().to_owned(),
+                target.window_index(),
+                target.pane_index(),
+            )
+        }
+
+        let Self {
+            session_global,
+            window_global,
+            sessions,
+            windows,
+            panes,
+            windows_by_id,
+            panes_by_id,
+            window_aliases,
+            pane_aliases,
+        } = self;
+        crate::handover::HookStoreV1 {
+            session_global: session_global.to_handover(),
+            window_global: window_global.to_handover(),
+            sessions: sorted(
+                sessions
+                    .iter()
+                    .map(|(name, hooks)| (name.as_str().to_owned(), hooks.to_handover()))
+                    .collect(),
+            ),
+            windows: sorted(
+                windows
+                    .iter()
+                    .map(|(target, hooks)| (window_key(target), (target, hooks)))
+                    .collect(),
+            )
+            .into_iter()
+            .map(|(_, (target, hooks))| (WindowTargetV1::from_target(target), hooks.to_handover()))
+            .collect(),
+            panes: sorted(
+                panes
+                    .iter()
+                    .map(|(target, hooks)| (pane_key(target), (target, hooks)))
+                    .collect(),
+            )
+            .into_iter()
+            .map(|(_, (target, hooks))| (PaneTargetV1::from_target(target), hooks.to_handover()))
+            .collect(),
+            windows_by_id: sorted(
+                windows_by_id
+                    .iter()
+                    .map(|(id, hooks)| (id.as_u32(), hooks.to_handover()))
+                    .collect(),
+            ),
+            panes_by_id: sorted(
+                panes_by_id
+                    .iter()
+                    .map(|(id, hooks)| (id.as_u32(), hooks.to_handover()))
+                    .collect(),
+            ),
+            window_aliases: sorted(
+                window_aliases
+                    .iter()
+                    .map(|(target, id)| (window_key(target), (target, id)))
+                    .collect(),
+            )
+            .into_iter()
+            .map(|(_, (target, id))| (WindowTargetV1::from_target(target), id.as_u32()))
+            .collect(),
+            pane_aliases: sorted(
+                pane_aliases
+                    .iter()
+                    .map(|(target, ids)| (pane_key(target), (target, ids)))
+                    .collect(),
+            )
+            .into_iter()
+            .map(|(_, (target, (window, pane)))| {
+                (
+                    PaneTargetV1::from_target(target),
+                    window.as_u32(),
+                    pane.as_u32(),
+                )
+            })
+            .collect(),
+        }
+    }
+
+    /// Rebuilds the hooks from handover data.
+    pub fn from_handover(
+        dto: crate::handover::HookStoreV1,
+    ) -> Result<Self, crate::handover::HandoverError> {
+        use crate::handover::{session_name, HandoverError};
+
+        let crate::handover::HookStoreV1 {
+            session_global,
+            window_global,
+            sessions,
+            windows,
+            panes,
+            windows_by_id,
+            panes_by_id,
+            window_aliases,
+            pane_aliases,
+        } = dto;
+        Ok(Self {
+            session_global: HookBindings::from_handover(session_global)?,
+            window_global: HookBindings::from_handover(window_global)?,
+            sessions: sessions
+                .into_iter()
+                .map(|(name, hooks)| {
+                    Ok((session_name(&name)?, HookBindings::from_handover(hooks)?))
+                })
+                .collect::<Result<_, HandoverError>>()?,
+            windows: windows
+                .into_iter()
+                .map(|(target, hooks)| {
+                    Ok((target.to_target()?, HookBindings::from_handover(hooks)?))
+                })
+                .collect::<Result<_, HandoverError>>()?,
+            panes: panes
+                .into_iter()
+                .map(|(target, hooks)| {
+                    Ok((target.to_target()?, HookBindings::from_handover(hooks)?))
+                })
+                .collect::<Result<_, HandoverError>>()?,
+            windows_by_id: windows_by_id
+                .into_iter()
+                .map(|(id, hooks)| {
+                    Ok((
+                        rmux_proto::WindowId::new(id),
+                        HookBindings::from_handover(hooks)?,
+                    ))
+                })
+                .collect::<Result<_, HandoverError>>()?,
+            panes_by_id: panes_by_id
+                .into_iter()
+                .map(|(id, hooks)| {
+                    Ok((
+                        rmux_proto::PaneId::new(id),
+                        HookBindings::from_handover(hooks)?,
+                    ))
+                })
+                .collect::<Result<_, HandoverError>>()?,
+            window_aliases: window_aliases
+                .into_iter()
+                .map(|(target, id)| Ok((target.to_target()?, rmux_proto::WindowId::new(id))))
+                .collect::<Result<_, HandoverError>>()?,
+            pane_aliases: pane_aliases
+                .into_iter()
+                .map(|(target, window, pane)| {
+                    Ok((
+                        target.to_target()?,
+                        (
+                            rmux_proto::WindowId::new(window),
+                            rmux_proto::PaneId::new(pane),
+                        ),
+                    ))
+                })
+                .collect::<Result<_, HandoverError>>()?,
+        })
+    }
+}
+
 #[cfg(test)]
 #[path = "hooks/tests.rs"]
 mod tests;

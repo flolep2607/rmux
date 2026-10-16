@@ -9,6 +9,8 @@ use crate::{AlertFlags, Pane, PaneGeometry, PaneId, SessionId, Window, WindowId}
 
 #[path = "session/accessors.rs"]
 mod accessors;
+#[path = "session/handover.rs"]
+mod handover;
 #[path = "session/layout_cycle.rs"]
 mod layout_cycle;
 #[path = "session/pane_transfer.rs"]
